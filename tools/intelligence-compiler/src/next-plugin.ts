@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runIntelligencePipeline } from "../../intelligence-core/src/pipeline";
+import { runIntelligencePipeline } from "@i2c/intelligence-core/pipeline";
 
 // ─── Types ──────────────────────────────────────────────────
 

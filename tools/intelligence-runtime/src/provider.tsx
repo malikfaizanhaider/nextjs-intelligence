@@ -7,7 +7,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import type { RuntimeMeta, ComponentRegistration } from "../../intelligence-types/src/index";
+import type { RuntimeMeta, ComponentRegistration } from "@i2c/intelligence-types";
 
 // ─── Types ──────────────────────────────────────────────────
 

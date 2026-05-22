@@ -1,9 +1,9 @@
 {
   "name": "@i2c/intelligence-core",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
+  "description": "Core static analysis pipeline for extracting route and component intelligence from Next.js projects.",
   "main": "./src/index.ts",
+  "module": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": {
@@ -13,6 +13,53 @@
     "./analyzer": {
       "types": "./src/analyzer/index.ts",
       "import": "./src/analyzer/index.ts"
+    },
+    "./analyzer/classifier": {
+      "types": "./src/analyzer/classifier.ts",
+      "import": "./src/analyzer/classifier.ts"
+    },
+    "./pipeline": {
+      "types": "./src/pipeline.ts",
+      "import": "./src/pipeline.ts"
     }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo \"No build step required\"",
+    "dev": "echo \"No dev step configured\"",
+    "lint": "echo \"No lint step configured\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "echo \"No tests configured\""
+  },
+  "dependencies": {
+    "@i2c/intelligence-types": "^1.0.0",
+    "fast-glob": "^3.3.3",
+    "ts-morph": "^25.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/i2c/nextjs-intelligence.git"
+  },
+  "keywords": [
+    "nextjs",
+    "react",
+    "intelligence",
+    "analysis"
+  ],
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

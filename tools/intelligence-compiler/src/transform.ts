@@ -1,8 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve, relative, basename } from "node:path";
 import fg from "fast-glob";
-import type { ComponentType } from "../../intelligence-types/src/index";
-import { classifyComponent } from "../../intelligence-core/src/analyzer/classifier";
+import type { ComponentType } from "@i2c/intelligence-types";
+import { classifyComponent } from "@i2c/intelligence-core/analyzer/classifier";
 
 // ─── Types ──────────────────────────────────────────────────
 
