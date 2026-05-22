@@ -1,8 +1,11 @@
 {
   "name": "@i2c/intelligence",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "description": "Unified Next.js intelligence toolkit: compiler, core analyzer, runtime hooks, dashboard, and shared types.",
   "type": "module",
+  "bin": {
+    "intelligence": "./dist/tools/intelligence-core/src/cli.js"
+  },
   "main": "./dist/tools/intelligence-core/src/index.js",
   "module": "./dist/tools/intelligence-core/src/index.js",
   "types": "./dist/tools/intelligence-types/src/index.d.ts",
@@ -45,7 +48,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs",
     "prepublishOnly": "npm run build",
     "lint": "echo \"No lint step configured\"",
     "test": "echo \"No tests configured\""
