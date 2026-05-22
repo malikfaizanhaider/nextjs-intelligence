@@ -1,0 +1,83 @@
+{
+  "name": "@i2c/nextjs-intelligence",
+  "version": "1.0.0",
+  "description": "Unified Next.js intelligence toolkit: compiler, core analyzer, runtime hooks, dashboard, and shared types.",
+  "type": "module",
+  "main": "./tools/intelligence-core/src/index.ts",
+  "module": "./tools/intelligence-core/src/index.ts",
+  "types": "./tools/intelligence-types/src/index.ts",
+  "files": [
+    "tools",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./tools/intelligence-core/src/index.ts",
+      "import": "./tools/intelligence-core/src/index.ts"
+    },
+    "./core": {
+      "types": "./tools/intelligence-core/src/index.ts",
+      "import": "./tools/intelligence-core/src/index.ts"
+    },
+    "./core/analyzer": {
+      "types": "./tools/intelligence-core/src/analyzer/index.ts",
+      "import": "./tools/intelligence-core/src/analyzer/index.ts"
+    },
+    "./compiler": {
+      "types": "./tools/intelligence-compiler/src/index.ts",
+      "import": "./tools/intelligence-compiler/src/index.ts"
+    },
+    "./compiler/next-plugin": {
+      "types": "./tools/intelligence-compiler/src/next-plugin.ts",
+      "import": "./tools/intelligence-compiler/src/next-plugin.ts"
+    },
+    "./runtime": {
+      "types": "./tools/intelligence-runtime/src/index.ts",
+      "import": "./tools/intelligence-runtime/src/index.ts"
+    },
+    "./dashboard": {
+      "types": "./tools/intelligence-dashboard/src/index.ts",
+      "import": "./tools/intelligence-dashboard/src/index.ts"
+    },
+    "./types": {
+      "types": "./tools/intelligence-types/src/index.ts",
+      "import": "./tools/intelligence-types/src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "echo \"No build step required\"",
+    "lint": "echo \"No lint step configured\"",
+    "test": "echo \"No tests configured\""
+  },
+  "peerDependencies": {
+    "next": ">=14.0.0",
+    "react": ">=18.2.0",
+    "react-dom": ">=18.2.0"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.8.6",
+    "fast-glob": "^3.3.3",
+    "ts-morph": "^25.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/i2c/nextjs-intelligence.git"
+  },
+  "keywords": [
+    "nextjs",
+    "react",
+    "intelligence",
+    "analysis"
+  ],
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
