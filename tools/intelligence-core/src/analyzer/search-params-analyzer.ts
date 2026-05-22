@@ -1,6 +1,6 @@
 import { SyntaxKind, type SourceFile, type Project } from "ts-morph";
 import { relative } from "node:path";
-import type { SearchParamUsage } from "../../../intelligence-types/src/index";
+import type { SearchParamUsage } from "../@i2c/intelligence-types";
 
 /**
  * Result of search params analysis for a set of files.

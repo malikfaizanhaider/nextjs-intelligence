@@ -10,7 +10,7 @@ import type {
   CompositeOwnershipGraph,
   RuntimeMountGraph,
   ConfidenceMeta,
-} from "../../../intelligence-types/src/index";
+} from "../@i2c/intelligence-types";
 import type { CompositeGroup } from "./composite-detector";
 
 /**

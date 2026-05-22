@@ -1,14 +1,57 @@
 {
   "name": "@i2c/intelligence-dashboard",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
+  "description": "React dashboard components for visualizing Next.js intelligence manifests and route graphs.",
   "main": "./src/index.ts",
+  "module": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo \"No build step required\"",
+    "dev": "echo \"No dev step configured\"",
+    "lint": "echo \"No lint step configured\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "echo \"No tests configured\""
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0",
+    "react-dom": ">=18.2.0",
+    "next": ">=14.0.0"
+  },
+  "dependencies": {
+    "@i2c/intelligence-types": "^1.0.0",
+    "@xyflow/react": "^12.8.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/i2c/nextjs-intelligence.git"
+  },
+  "keywords": [
+    "nextjs",
+    "react",
+    "intelligence",
+    "analysis"
+  ],
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

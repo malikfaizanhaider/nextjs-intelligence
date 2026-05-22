@@ -1,8 +1,8 @@
 import type {
   ComponentMeta,
   CanonicalIdentity,
-} from "../../../intelligence-types/src/index";
-import { buildCanonicalId } from "../../../intelligence-types/src/index";
+} from "../@i2c/intelligence-types";
+import { buildCanonicalId } from "../@i2c/intelligence-types";
 import type { CompositeGroup } from "./composite-detector";
 
 /**

@@ -10,7 +10,7 @@ import {
   buildCanonicalId,
   type CanonicalIdentity,
   type ConfidenceMeta,
-} from "../../../intelligence-types/src/index";
+} from "../@i2c/intelligence-types";
 
 /**
  * Resolved symbol information for a JSX tag or import reference.
