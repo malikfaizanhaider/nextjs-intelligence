@@ -7,8 +7,8 @@ import type {
   ComponentUsageMap,
   SearchParamUsage,
   RouteComplexity,
-} from "../@i2c/intelligence-types";
-import { isBuiltinHook } from "../@i2c/intelligence-types";
+} from "../../../intelligence-types/src/index";
+import { isBuiltinHook } from "../../../intelligence-types/src/index";
 import { RecursiveTraverser } from "./recursive-traverser";
 import { SearchParamsAnalyzer } from "./search-params-analyzer";
 import type { CompositeGroup } from "./composite-detector";

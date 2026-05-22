@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runIntelligencePipeline } from "@i2c/intelligence-core/pipeline";
+import { runIntelligencePipeline } from "../../intelligence-core/src/pipeline";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -29,9 +29,12 @@ interface IntelligencePluginOptions {
  * Next.js plugin wrapper that integrates the intelligence engine
  * into the build pipeline.
  *
- * Usage in next.config.js:
- * ```js
- * import { withIntelligence } from "@i2c/intelligence-compiler/next-plugin";
+ * Supports both Webpack and Turbopack (Next.js 16 default).
+ * Uses async config resolution — compatible with Next.js 14+.
+ *
+ * Usage in next.config.ts:
+ * ```ts
+ * import { withIntelligence } from "@i2c/intelligence/compiler/next-plugin";
  *
  * export default withIntelligence({
  *   reactStrictMode: true,
@@ -39,17 +42,17 @@ interface IntelligencePluginOptions {
  * ```
  *
  * With options:
- * ```js
+ * ```ts
  * export default withIntelligence(
  *   { reactStrictMode: true },
  *   { appDir: "src/app", outputDir: ".generated/intelligence" }
  * );
  * ```
  */
-export function withIntelligence(
+export async function withIntelligence(
   nextConfig: NextConfig = {},
   pluginOptions: IntelligencePluginOptions = {}
-): NextConfig {
+): Promise<NextConfig> {
   const {
     enabled = true,
     appDir = "app",
@@ -66,9 +69,10 @@ export function withIntelligence(
   // Run analysis as part of the config resolution
   const projectRoot = process.cwd();
 
-  // Run the intelligence pipeline before the build starts.
-  // We use a top-level promise that blocks the config.
-  const analysisPromise = runIntelligencePipeline({
+  // Await the intelligence pipeline before returning config.
+  // This ensures analysis completes before the build starts,
+  // regardless of bundler (Webpack or Turbopack).
+  await runIntelligencePipeline({
     projectRoot,
     appDir,
     outputDir,
@@ -94,22 +98,6 @@ export function withIntelligence(
 
   return {
     ...nextConfig,
-    // Hook into the webpack config to ensure analysis completes before build
-    webpack: (config: Record<string, unknown>, context: Record<string, unknown>) => {
-      // Ensure analysis is complete
-      if (typeof (globalThis as Record<string, unknown>).__intelligenceReady === "undefined") {
-        (globalThis as Record<string, unknown>).__intelligenceReady = analysisPromise.then(() => {
-          (globalThis as Record<string, unknown>).__intelligenceReady = true;
-        });
-      }
-
-      // Apply user's webpack config if provided
-      if (typeof nextConfig.webpack === "function") {
-        return (nextConfig.webpack as (config: unknown, context: unknown) => unknown)(config, context);
-      }
-
-      return config;
-    },
   };
 }
 

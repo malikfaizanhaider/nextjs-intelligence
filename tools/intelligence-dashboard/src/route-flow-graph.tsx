@@ -24,7 +24,7 @@ import type {
   ComponentMeta,
   DependencyGraph,
   ComponentUsageMap,
-} from "@i2c/intelligence-types";
+} from "../../intelligence-types/src/index";
 
 // ─── Color Config ───────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { AnalyzerConfig, IntelligenceManifest, Diagnostic } from "@i2c/intelligence-types";
+import type { AnalyzerConfig, IntelligenceManifest, Diagnostic } from "../../intelligence-types/src/index";
 import { IntelligenceRegistry } from "./registry";
 import { ComponentAnalyzer } from "./analyzer/component-analyzer";
 import { detectRoutes } from "./analyzer/route-detector";

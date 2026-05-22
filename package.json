@@ -1,51 +1,52 @@
 {
-  "name": "@i2c/nextjs-intelligence",
-  "version": "1.0.0",
+  "name": "@i2c/intelligence",
+  "version": "0.0.3",
   "description": "Unified Next.js intelligence toolkit: compiler, core analyzer, runtime hooks, dashboard, and shared types.",
   "type": "module",
-  "main": "./tools/intelligence-core/src/index.ts",
-  "module": "./tools/intelligence-core/src/index.ts",
-  "types": "./tools/intelligence-types/src/index.ts",
+  "main": "./dist/tools/intelligence-core/src/index.js",
+  "module": "./dist/tools/intelligence-core/src/index.js",
+  "types": "./dist/tools/intelligence-types/src/index.d.ts",
   "files": [
-    "tools",
+    "dist",
     "LICENSE"
   ],
   "exports": {
     ".": {
-      "types": "./tools/intelligence-core/src/index.ts",
-      "import": "./tools/intelligence-core/src/index.ts"
+      "types": "./dist/tools/intelligence-core/src/index.d.ts",
+      "import": "./dist/tools/intelligence-core/src/index.js"
     },
     "./core": {
-      "types": "./tools/intelligence-core/src/index.ts",
-      "import": "./tools/intelligence-core/src/index.ts"
+      "types": "./dist/tools/intelligence-core/src/index.d.ts",
+      "import": "./dist/tools/intelligence-core/src/index.js"
     },
     "./core/analyzer": {
-      "types": "./tools/intelligence-core/src/analyzer/index.ts",
-      "import": "./tools/intelligence-core/src/analyzer/index.ts"
+      "types": "./dist/tools/intelligence-core/src/analyzer/index.d.ts",
+      "import": "./dist/tools/intelligence-core/src/analyzer/index.js"
     },
     "./compiler": {
-      "types": "./tools/intelligence-compiler/src/index.ts",
-      "import": "./tools/intelligence-compiler/src/index.ts"
+      "types": "./dist/tools/intelligence-compiler/src/index.d.ts",
+      "import": "./dist/tools/intelligence-compiler/src/index.js"
     },
     "./compiler/next-plugin": {
-      "types": "./tools/intelligence-compiler/src/next-plugin.ts",
-      "import": "./tools/intelligence-compiler/src/next-plugin.ts"
+      "types": "./dist/tools/intelligence-compiler/src/next-plugin.d.ts",
+      "import": "./dist/tools/intelligence-compiler/src/next-plugin.js"
     },
     "./runtime": {
-      "types": "./tools/intelligence-runtime/src/index.ts",
-      "import": "./tools/intelligence-runtime/src/index.ts"
+      "types": "./dist/tools/intelligence-runtime/src/index.d.ts",
+      "import": "./dist/tools/intelligence-runtime/src/index.js"
     },
     "./dashboard": {
-      "types": "./tools/intelligence-dashboard/src/index.ts",
-      "import": "./tools/intelligence-dashboard/src/index.ts"
+      "types": "./dist/tools/intelligence-dashboard/src/index.d.ts",
+      "import": "./dist/tools/intelligence-dashboard/src/index.js"
     },
     "./types": {
-      "types": "./tools/intelligence-types/src/index.ts",
-      "import": "./tools/intelligence-types/src/index.ts"
+      "types": "./dist/tools/intelligence-types/src/index.d.ts",
+      "import": "./dist/tools/intelligence-types/src/index.js"
     }
   },
   "scripts": {
-    "build": "echo \"No build step required\"",
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
     "lint": "echo \"No lint step configured\"",
     "test": "echo \"No tests configured\""
   },
@@ -60,6 +61,9 @@
     "ts-morph": "^25.0.1"
   },
   "devDependencies": {
+    "@types/node": "25.9.1",
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
     "typescript": "^5.6.3"
   },
   "sideEffects": false,
@@ -78,6 +82,6 @@
     "node": ">=18.18.0"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://artifacts-local.i2cinc.com/repository/dd-npm-private/"
   }
 }

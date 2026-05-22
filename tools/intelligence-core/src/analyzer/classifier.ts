@@ -1,4 +1,4 @@
-import type { ClassificationRule, ComponentType } from "../@i2c/intelligence-types";
+import type { ClassificationRule, ComponentType } from "../../../intelligence-types/src/index";
 
 /**
  * Provider detection patterns beyond name matching.

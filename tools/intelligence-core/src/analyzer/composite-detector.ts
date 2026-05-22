@@ -1,6 +1,6 @@
 import { SyntaxKind, type SourceFile, type Project } from "ts-morph";
-import type { ComponentMeta, ConfidenceMeta, EvidenceType } from "../@i2c/intelligence-types";
-import { buildCanonicalId } from "../@i2c/intelligence-types";
+import type { ComponentMeta, ConfidenceMeta, EvidenceType } from "../../../intelligence-types/src/index";
+import { buildCanonicalId } from "../../../intelligence-types/src/index";
 
 /**
  * Detected composite (compound) component pattern.

@@ -37,8 +37,6 @@
     "react-dom": ">=18.2.0"
   },
   "dependencies": {
-    "@i2c/intelligence-core": "^1.0.0",
-    "@i2c/intelligence-types": "^1.0.0",
     "fast-glob": "^3.3.3"
   },
   "devDependencies": {
