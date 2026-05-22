@@ -1,7 +1,7 @@
 import { relative } from "node:path";
 import type { SourceFile, Project } from "ts-morph";
 import { SyntaxKind } from "ts-morph";
-import { isBuiltinHook, buildCanonicalId } from "../../../intelligence-types/src/index";
+import { isBuiltinHook, buildCanonicalId } from "../@i2c/intelligence-types";
 
 /**
  * Represents a resolved dependency discovered during recursive traversal.

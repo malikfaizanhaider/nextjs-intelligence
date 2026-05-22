@@ -9,7 +9,7 @@ import type {
   RouteIntelligence,
   ComponentUsageMap,
   DependencyGraph,
-} from "../../intelligence-types/src/index";
+} from "@i2c/intelligence-types";
 
 const LazyRouteFlowGraph = lazy(() =>
   import("./route-flow-graph").then((mod) => ({ default: mod.RouteFlowGraph }))

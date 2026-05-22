@@ -1,9 +1,9 @@
 {
   "name": "@i2c/intelligence-compiler",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
+  "description": "Compiler transforms and Next.js plugin integration for intelligence instrumentation.",
   "main": "./src/index.ts",
+  "module": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": {
@@ -18,5 +18,49 @@
       "types": "./src/transform.ts",
       "import": "./src/transform.ts"
     }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo \"No build step required\"",
+    "dev": "echo \"No dev step configured\"",
+    "lint": "echo \"No lint step configured\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "echo \"No tests configured\""
+  },
+  "peerDependencies": {
+    "next": ">=14.0.0",
+    "react": ">=18.2.0",
+    "react-dom": ">=18.2.0"
+  },
+  "dependencies": {
+    "@i2c/intelligence-core": "^1.0.0",
+    "@i2c/intelligence-types": "^1.0.0",
+    "fast-glob": "^3.3.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/i2c/nextjs-intelligence.git"
+  },
+  "keywords": [
+    "nextjs",
+    "react",
+    "intelligence",
+    "analysis"
+  ],
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
