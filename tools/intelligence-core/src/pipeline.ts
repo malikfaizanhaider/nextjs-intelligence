@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
-import type { AnalyzerConfig, IntelligenceManifest, Diagnostic } from "@i2c/intelligence-types";
+import type { AnalyzerConfig, IntelligenceManifest } from "../../intelligence-types/src/index";
 import { IntelligenceRegistry } from "./registry";
+import type { DiagnosticsStore } from "./session/diagnostics-store";
+import { AnalysisSession } from "./session/analysis-session";
 import { ComponentAnalyzer } from "./analyzer/component-analyzer";
 import { detectRoutes } from "./analyzer/route-detector";
 import { GraphBuilder } from "./analyzer/graph-builder";
@@ -51,7 +53,20 @@ export async function runIntelligencePipeline(
     ),
   };
 
-  const registry = IntelligenceRegistry.getInstance();
+  const session = new AnalysisSession({ config, registry: IntelligenceRegistry.getInstance() });
+
+  try {
+    return await session.run();
+  } finally {
+    session.dispose();
+  }
+}
+
+export async function runIntelligencePipelineInternal(
+  config: AnalyzerConfig,
+  registry: IntelligenceRegistry,
+  diagnosticsStore?: DiagnosticsStore
+): Promise<IntelligenceManifest> {
   registry.clear();
   registry.setProjectRoot(config.projectRoot);
 
@@ -186,6 +201,7 @@ export async function runIntelligencePipeline(
   // Attach separated graphs and diagnostics
   manifest.graphs = separatedGraphs;
   manifest.diagnostics = diagnostics;
+  diagnosticsStore?.addMany(diagnostics);
 
   const writer = new OutputWriter(config.outputDir);
   await writer.writeAll(manifest);

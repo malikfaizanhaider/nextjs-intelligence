@@ -1,5 +1,5 @@
 import { resolve, relative, posix } from "node:path";
-import type { RouteMeta } from "../@i2c/intelligence-types";
+import type { RouteMeta } from "../../../intelligence-types/src/index";
 import fg from "fast-glob";
 
 const NEXT_SPECIAL_FILES = ["page", "layout", "loading", "error", "template"] as const;

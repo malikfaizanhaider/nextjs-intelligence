@@ -11,7 +11,7 @@ import type {
   GraphEdge,
   SeparatedGraphs,
   Diagnostic,
-} from "@i2c/intelligence-types";
+} from "../../intelligence-types/src/index";
 
 /**
  * Central singleton registry that aggregates build-time AST metadata

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ComponentRegistration } from "@i2c/intelligence-types";
+import type { ComponentRegistration } from "../../intelligence-types/src/index";
 import { useIntelligenceContext } from "./provider";
 
 /**

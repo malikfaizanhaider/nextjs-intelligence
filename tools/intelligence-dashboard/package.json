@@ -29,7 +29,6 @@
     "next": ">=14.0.0"
   },
   "dependencies": {
-    "@i2c/intelligence-types": "^1.0.0",
     "@xyflow/react": "^12.8.6"
   },
   "devDependencies": {
@@ -51,7 +50,5 @@
   "engines": {
     "node": ">=18.18.0"
   },
-  "publishConfig": {
-    "access": "public"
-  }
+  "private": true
 }

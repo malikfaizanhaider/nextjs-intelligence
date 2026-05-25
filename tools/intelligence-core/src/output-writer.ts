@@ -7,7 +7,7 @@ import type {
   RuntimeMeta,
   SeparatedGraphs,
   Diagnostic,
-} from "@i2c/intelligence-types";
+} from "../../intelligence-types/src/index";
 
 /**
  * Writes deterministic, serializable JSON intelligence files to disk.

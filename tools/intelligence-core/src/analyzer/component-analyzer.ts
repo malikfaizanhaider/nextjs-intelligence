@@ -9,8 +9,8 @@ import type {
   RenderingEnvironment,
   CanonicalIdentity,
   ConfidenceMeta,
-} from "../@i2c/intelligence-types";
-import { buildCanonicalId } from "../@i2c/intelligence-types";
+} from "../../../intelligence-types/src/index";
+import { buildCanonicalId } from "../../../intelligence-types/src/index";
 import { classifyComponent } from "./classifier";
 import { SymbolResolver } from "./symbol-resolver";
 

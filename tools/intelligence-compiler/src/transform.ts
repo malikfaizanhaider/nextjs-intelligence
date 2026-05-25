@@ -1,8 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve, relative, basename } from "node:path";
 import fg from "fast-glob";
-import type { ComponentType } from "@i2c/intelligence-types";
-import { classifyComponent } from "@i2c/intelligence-core/analyzer/classifier";
+import type { ComponentType } from "../../intelligence-types/src/index";
+import { classifyComponent } from "../../intelligence-core/src/analyzer/classifier";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ export function transformSource(
   }
 
   // Add the import at the top (after "use client" directive)
-  const importStatement = `\nimport { useComponentRegistration } from "@i2c/intelligence-runtime";\n${INJECTION_MARKER}\n`;
+  const importStatement = `\nimport { useComponentRegistration } from "@i2c/intelligence/runtime";\n${INJECTION_MARKER}\n`;
 
   // Insert after the "use client" directive line
   const directiveEndIndex = modified.indexOf("\n") + 1;
