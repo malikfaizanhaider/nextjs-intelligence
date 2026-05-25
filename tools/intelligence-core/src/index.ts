@@ -17,3 +17,10 @@ export {
   Canonicalizer,
   VerificationPass,
 } from "./analyzer/index";
+
+export { AnalysisSession } from "./session/analysis-session";
+export { SessionState } from "./session/session-state";
+export { PassManager } from "./passes/pass-manager";
+export { InMemoryDiagnosticsStore } from "./session/diagnostics-store";
+export { InMemoryIRStore } from "./ir/ir-store";
+export { RegistryAdapter } from "./session/registry-adapter";
