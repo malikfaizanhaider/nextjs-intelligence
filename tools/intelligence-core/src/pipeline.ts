@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { resolveAppDirectories } from "./analyzer/app-dir-resolver";
 import type { AnalyzerConfig, IntelligenceManifest } from "../../intelligence-types/src/index";
 import { IntelligenceRegistry } from "./registry";
 import type { DiagnosticsStore } from "./session/diagnostics-store";
@@ -17,7 +18,7 @@ const DEFAULT_CONFIG: AnalyzerConfig = {
   projectRoot: process.cwd(),
   include: ["app/**/*.{tsx,ts}", "components/**/*.{tsx,ts}", "@ui/**/*.{tsx,ts}", "ui/**/*.{tsx,ts}"],
   exclude: ["**/*.test.*", "**/*.spec.*", "**/*.stories.*", "**/__tests__/**"],
-  appDir: "app",
+  appDir: "",
   outputDir: ".generated/intelligence",
   incremental: true,
   cacheDir: "node_modules/.cache/intelligence",
@@ -39,19 +40,33 @@ const DEFAULT_CONFIG: AnalyzerConfig = {
 export async function runIntelligencePipeline(
   userConfig: Partial<AnalyzerConfig> = {}
 ): Promise<IntelligenceManifest> {
+  const resolvedProjectRoot = resolve(userConfig.projectRoot ?? DEFAULT_CONFIG.projectRoot);
+  const appResolution = await resolveAppDirectories(resolvedProjectRoot, userConfig.appDir);
+
   const config: AnalyzerConfig = {
     ...DEFAULT_CONFIG,
     ...userConfig,
-    projectRoot: resolve(userConfig.projectRoot ?? DEFAULT_CONFIG.projectRoot),
+    projectRoot: resolvedProjectRoot,
     outputDir: resolve(
-      userConfig.projectRoot ?? DEFAULT_CONFIG.projectRoot,
+      resolvedProjectRoot,
       userConfig.outputDir ?? DEFAULT_CONFIG.outputDir
     ),
     cacheDir: resolve(
-      userConfig.projectRoot ?? DEFAULT_CONFIG.projectRoot,
+      resolvedProjectRoot,
       userConfig.cacheDir ?? DEFAULT_CONFIG.cacheDir
     ),
+    appDir: appResolution.primaryAppDir,
+    include: userConfig.include ?? appResolution.candidateAppDirs.flatMap((dir) => [
+      `${dir}/**/*.{tsx,ts,jsx,js}`,
+      "components/**/*.{tsx,ts,jsx,js}",
+      "src/components/**/*.{tsx,ts,jsx,js}",
+      "@ui/**/*.{tsx,ts,jsx,js}",
+      "ui/**/*.{tsx,ts,jsx,js}",
+    ]),
+    appDirs: appResolution.candidateAppDirs,
   };
+
+  console.log(`[intelligence] App directory candidates: ${appResolution.candidateAppDirs.join(", ")}`);
 
   const session = new AnalysisSession({ config, registry: IntelligenceRegistry.getInstance() });
 
@@ -84,7 +99,7 @@ export async function runIntelligencePipelineInternal(
 
   // ── Phase 2: Route Detection ────────────────────────────
   console.log("[intelligence] Phase 2: Detecting routes...");
-  const routes = await detectRoutes(config.projectRoot, config.appDir);
+  const routes = await detectRoutes(config.projectRoot, config.appDirs ?? config.appDir);
   console.log(`[intelligence]   Found ${routes.length} routes`);
 
   // Register routes

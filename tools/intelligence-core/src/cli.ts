@@ -28,11 +28,11 @@ async function main(): Promise<void> {
 
   const projectRoot = parsed["root"] ? resolve(parsed["root"]) : process.cwd();
   const outputDir = parsed["output"] ?? ".generated/intelligence";
-  const appDir = parsed["app-dir"] ?? "app";
+  const appDir = parsed["app-dir"];
   const incremental = parsed["no-cache"] !== "true";
 
   console.log(`[intelligence] Project root: ${projectRoot}`);
-  console.log(`[intelligence] App directory: ${appDir}`);
+  console.log(`[intelligence] App directory override: ${appDir ?? "<auto-detect>"}`);
   console.log(`[intelligence] Output: ${outputDir}`);
   console.log(`[intelligence] Incremental: ${incremental}`);
   console.log("");
