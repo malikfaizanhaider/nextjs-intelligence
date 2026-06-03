@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback, useEffect, useState } from "react";
+import { useMemo, useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -65,8 +65,19 @@ interface IntelNodeData {
   badges?: string[];
   metrics?: { label: string; value: string | number }[];
   isReusable?: boolean;
+  /** Low-confidence diagnostic attached to this node (composite root). */
+  confidence?: {
+    score: number;
+    severity: "warning" | "info";
+    evidence: string[];
+  };
   [key: string]: unknown;
 }
+
+const CONFIDENCE_OVERLAY = {
+  warning: { border: "#f59e0b", text: "#92400e", bg: "#fef3c7" },
+  info: { border: "#0ea5e9", text: "#0369a1", bg: "#e0f2fe" },
+} as const;
 
 type IntelNode = Node<IntelNodeData>;
 
@@ -97,17 +108,21 @@ function addLimitNotice(
 
 function RouteNode({ data }: NodeProps<IntelNode>) {
   const style = NODE_STYLES[data.nodeType] ?? NODE_STYLES.component;
+  const conf = data.confidence;
+  const confOverlay = conf ? CONFIDENCE_OVERLAY[conf.severity] : null;
   return (
     <div
+      title={conf ? `Low-confidence composite (${conf.score.toFixed(2)}): ${conf.evidence.join(", ") || "no evidence"}` : undefined}
       style={{
         background: style.bg,
-        border: `2px solid ${style.border}`,
+        border: confOverlay ? `2px dashed ${confOverlay.border}` : `2px solid ${style.border}`,
         borderRadius: "10px",
         padding: "12px 16px",
         minWidth: "180px",
         maxWidth: "260px",
         boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
         fontFamily: "system-ui, sans-serif",
+        opacity: conf ? 0.7 : 1,
       }}
     >
       <Handle type="target" position={Position.Top} style={{ background: style.border }} />
@@ -183,6 +198,23 @@ function RouteNode({ data }: NodeProps<IntelNode>) {
           ♻ reusable
         </div>
       )}
+      {conf && confOverlay && (
+        <div
+          style={{
+            fontSize: "9px",
+            marginTop: "4px",
+            padding: "2px 6px",
+            borderRadius: "9999px",
+            background: confOverlay.bg,
+            color: confOverlay.text,
+            border: `1px solid ${confOverlay.border}`,
+            fontWeight: 600,
+            display: "inline-block",
+          }}
+        >
+          ⚠ low confidence {conf.score.toFixed(2)}
+        </div>
+      )}
       <Handle type="source" position={Position.Bottom} style={{ background: style.border }} />
     </div>
   );
@@ -190,11 +222,14 @@ function RouteNode({ data }: NodeProps<IntelNode>) {
 
 function CompactNode({ data }: NodeProps<IntelNode>) {
   const style = NODE_STYLES[data.nodeType] ?? NODE_STYLES.component;
+  const conf = data.confidence;
+  const confOverlay = conf ? CONFIDENCE_OVERLAY[conf.severity] : null;
   return (
     <div
+      title={conf ? `Low-confidence composite (${conf.score.toFixed(2)}): ${conf.evidence.join(", ") || "no evidence"}` : undefined}
       style={{
         background: style.bg,
-        border: `1.5px solid ${style.border}`,
+        border: confOverlay ? `1.5px dashed ${confOverlay.border}` : `1.5px solid ${style.border}`,
         borderRadius: "6px",
         padding: "6px 10px",
         minWidth: "100px",
@@ -206,12 +241,14 @@ function CompactNode({ data }: NodeProps<IntelNode>) {
         display: "flex",
         alignItems: "center",
         gap: "4px",
+        opacity: conf ? 0.65 : 1,
       }}
     >
       <Handle type="target" position={Position.Top} style={{ background: style.border, width: 6, height: 6 }} />
       <span style={{ fontSize: "12px" }}>{style.icon}</span>
       <span>{data.label}</span>
       {data.isReusable && <span style={{ color: "#059669", fontSize: "10px" }}>♻</span>}
+      {conf && <span style={{ color: confOverlay?.text, fontSize: "10px" }} aria-label={`low confidence ${conf.score.toFixed(2)}`}>⚠</span>}
       <Handle type="source" position={Position.Bottom} style={{ background: style.border, width: 6, height: 6 }} />
     </div>
   );
@@ -221,6 +258,50 @@ const nodeTypes: NodeTypes = {
   routeNode: RouteNode,
   compactNode: CompactNode,
 };
+
+// ─── Confidence Decoration ──────────────────────────────────
+
+type LowConfidenceMap = Map<
+  string,
+  { score: number; severity: "warning" | "info"; evidence: string[] }
+>;
+
+function extractLowConfidenceMap(manifest: IntelligenceManifest): LowConfidenceMap {
+  const map: LowConfidenceMap = new Map();
+  for (const d of manifest.diagnostics ?? []) {
+    if (d.category !== "low-confidence-composite") continue;
+    if (!d.nodeId) continue;
+    if (d.severity !== "warning" && d.severity !== "info") continue;
+    const score = typeof d.context?.confidence === "number" ? d.context.confidence : 0;
+    const evidence = Array.isArray(d.context?.evidence)
+      ? (d.context.evidence as string[])
+      : [];
+    map.set(d.nodeId, { score, severity: d.severity, evidence });
+    // Also index by component short name for builders that key on display name.
+    const shortName = d.nodeId.split("#").pop();
+    if (shortName && !map.has(shortName)) {
+      map.set(shortName, { score, severity: d.severity, evidence });
+    }
+  }
+  return map;
+}
+
+function decorateConfidence(nodes: IntelNode[], lowConf: LowConfidenceMap): IntelNode[] {
+  if (lowConf.size === 0) return nodes;
+  return nodes.map((node) => {
+    // Component nodes use `comp::${canonicalIdOrName}`; route nodes never carry composite IDs.
+    if (!node.id.startsWith("comp::") && !node.id.startsWith("reusable::")) {
+      return node;
+    }
+    const key = node.id.replace(/^(comp|reusable)::/, "");
+    const entry = lowConf.get(key);
+    if (!entry) return node;
+    return {
+      ...node,
+      data: { ...node.data, confidence: entry },
+    };
+  });
+}
 
 // ─── Graph Modes ────────────────────────────────────────────
 
@@ -240,10 +321,12 @@ function buildRouteOverviewGraph(manifest: IntelligenceManifest): {
   let sharedEdgeCount = 0;
   let omittedSharedEdges = 0;
 
-  // Position routes in a grid
+  // Position routes in a grid. Generous spacing (was 300/200) so shared-component
+  // edges between distant routes have room to bend instead of overlapping the
+  // node bodies.
   const cols = Math.ceil(Math.sqrt(routes.length));
-  const colWidth = 300;
-  const rowHeight = 200;
+  const colWidth = 440;
+  const rowHeight = 320;
 
   routes.forEach((route, index) => {
     const col = index % cols;
@@ -368,11 +451,12 @@ function buildRouteDetailGraph(
     renderEdgesBySource.set(edge.source, bucket);
   }
 
-  // Root route node at top
+  // Root route node at top. Pushed right a bit to leave space for the wider
+  // group rows below.
   nodes.push({
     id: `route::${route.path}`,
     type: "routeNode",
-    position: { x: 300, y: 0 },
+    position: { x: 600, y: 0 },
     data: {
       label: route.path,
       nodeType: "route",
@@ -396,15 +480,19 @@ function buildRouteDetailGraph(
     { type: "util", items: route.utils },
   ];
 
-  let yOffset = 140;
+  // Layout knobs — relaxed so child rows don't crash into each other and
+  // edges from root route fan out cleanly.
+  const ITEM_STEP = 240;
+  const ROW_STEP = 220;
+  let yOffset = 260;
 
   for (const group of groups) {
     if (group.items.length === 0) continue;
 
     const displayedItems = group.items.slice(0, MAX_ROUTE_DETAIL_ITEMS_PER_GROUP);
     const omittedItems = group.items.length - displayedItems.length;
-    const totalWidth = displayedItems.length * 180;
-    const startX = 300 - totalWidth / 2 + 90;
+    const totalWidth = displayedItems.length * ITEM_STEP;
+    const startX = 600 - totalWidth / 2 + ITEM_STEP / 2;
 
     displayedItems.forEach((item, idx) => {
       const nodeId = `${group.type}::${item}`;
@@ -418,7 +506,7 @@ function buildRouteDetailGraph(
       nodes.push({
         id: nodeId,
         type: "compactNode",
-        position: { x: startX + idx * 180, y: yOffset },
+        position: { x: startX + idx * ITEM_STEP, y: yOffset },
         data: {
           label: item,
           nodeType: comp?.type ?? group.type,
@@ -466,12 +554,12 @@ function buildRouteDetailGraph(
 
     if (omittedItems > 0) {
       addLimitNotice(nodes, `+${omittedItems.toLocaleString()} ${group.type} items hidden`, {
-        x: startX + displayedItems.length * 180,
+        x: startX + displayedItems.length * ITEM_STEP,
         y: yOffset,
       });
     }
 
-    yOffset += 120;
+    yOffset += ROW_STEP;
   }
 
   return { nodes, edges };
@@ -492,13 +580,15 @@ function buildComponentReuseGraph(
     return { nodes, edges };
   }
 
-  // Place reusable components in center column
-  const centerX = 400;
+  // Place reusable components in centre column. Generous vertical spacing
+  // (was 160) so the many incoming reuse edges from each side don't pile up.
+  const centerX = 600;
+  const reusableStep = 220;
   reusable.forEach(([name, usage], idx) => {
     nodes.push({
       id: `reusable::${name}`,
       type: "routeNode",
-      position: { x: centerX, y: idx * 160 },
+      position: { x: centerX, y: idx * reusableStep },
       data: {
         label: name,
         nodeType: usage.type,
@@ -508,18 +598,20 @@ function buildComponentReuseGraph(
     });
   });
 
-  // Place routes on both sides
+  // Place routes on both sides. Wider gutters (0 / 1200 instead of 0 / 800)
+  // give the smoothstep edges room to curve without crossing the centre nodes.
   const routePaths = new Set(reusable.flatMap(([, u]) => u.usedInRoutes));
   const routeList = Array.from(routePaths).slice(0, MAX_COMPONENT_REUSE_ROUTES);
   const displayedRoutePaths = new Set(routeList);
   const leftRoutes = routeList.slice(0, Math.ceil(routeList.length / 2));
   const rightRoutes = routeList.slice(Math.ceil(routeList.length / 2));
+  const routeStep = 110;
 
   leftRoutes.forEach((path, idx) => {
     nodes.push({
       id: `route::${path}`,
       type: "compactNode",
-      position: { x: 0, y: idx * 80 },
+      position: { x: 0, y: idx * routeStep },
       data: { label: path, nodeType: "route" },
     });
   });
@@ -528,7 +620,7 @@ function buildComponentReuseGraph(
     nodes.push({
       id: `route::${path}`,
       type: "compactNode",
-      position: { x: 800, y: idx * 80 },
+      position: { x: 1200, y: idx * routeStep },
       data: { label: path, nodeType: "route" },
     });
   });
@@ -555,7 +647,7 @@ function buildComponentReuseGraph(
     addLimitNotice(
       nodes,
       `limited view: ${hiddenReusable.toLocaleString()} components, ${hiddenRoutes.toLocaleString()} routes, or extra links hidden`,
-      { x: centerX, y: reusable.length * 160 + 80 }
+      { x: centerX, y: reusable.length * reusableStep + 100 }
     );
   }
 
@@ -570,12 +662,14 @@ function buildFullArchitectureGraph(
 
   const routes = Object.values(manifest.routeIntelligence);
 
-  // Routes as top row
+  // Routes as top row. Wider step (was 280) so route nodes don't crowd and
+  // the fan-out to components below stays legible.
+  const ROUTE_STEP_X = 360;
   routes.forEach((route, idx) => {
     nodes.push({
       id: `route::${route.path}`,
       type: "routeNode",
-      position: { x: idx * 280, y: 0 },
+      position: { x: idx * ROUTE_STEP_X, y: 0 },
       data: {
         label: route.path,
         nodeType: "route",
@@ -593,16 +687,19 @@ function buildFullArchitectureGraph(
     for (const c of route.components) allCompNames.add(c);
   }
 
-  // Components as middle row
+  // Components as middle row. Wider step (was 160) + larger vertical gap
+  // from routes (was 250) so route→component edges have room to breathe.
   const allCompList = Array.from(allCompNames).sort();
   const compList = allCompList.slice(0, MAX_FULL_ARCH_COMPONENTS);
   const visibleComponents = new Set(compList);
+  const COMP_STEP_X = 210;
+  const COMP_ROW_Y = 420;
   compList.forEach((name, idx) => {
     const usage = manifest.componentUsage[name];
     nodes.push({
       id: `comp::${name}`,
       type: "compactNode",
-      position: { x: idx * 160, y: 250 },
+      position: { x: idx * COMP_STEP_X, y: COMP_ROW_Y },
       data: {
         label: name,
         nodeType: usage?.type ?? "component",
@@ -635,7 +732,7 @@ function buildFullArchitectureGraph(
     addLimitNotice(
       nodes,
       `+${hiddenComponents.toLocaleString()} components and ${omittedEdges.toLocaleString()} links hidden`,
-      { x: compList.length * 160 + 160, y: 250 }
+      { x: compList.length * COMP_STEP_X + COMP_STEP_X, y: COMP_ROW_Y }
     );
   }
 
@@ -656,6 +753,24 @@ export function RouteFlowGraph({
   onRouteSelect,
 }: Readonly<RouteFlowGraphProps>) {
   const [mode, setMode] = useState<GraphMode>("route-overview");
+  // ID of the node the user clicked to focus. `null` = no focus, full graph at
+  // normal opacity. When set, only the focused node + its N-hop neighbors
+  // render at full opacity; everything else dims.
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  // How many hops out from the focused node to keep visible. Default 1 keeps
+  // the original behaviour; bumping to 2/3 reveals deeper dependency chains
+  // without losing the dim-everything-else effect.
+  const [focusDepth, setFocusDepth] = useState<1 | 2 | 3>(1);
+  // Free-text filter applied on top of the built graph. Empty string = no
+  // filter. Matches any node whose label includes the query (case-insensitive)
+  // and dims everything else, regardless of focus state.
+  const [searchQuery, setSearchQuery] = useState("");
+  // Node types currently hidden via the legend. Clicking a legend swatch
+  // toggles its key in/out of this set. Hidden types dim alongside the rest
+  // of the dim treatment, so the user keeps spatial context.
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(() => new Set());
+  // Ref to the search input so the `/` shortcut can focus it.
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedIntel = selectedRoute
     ? manifest.routeIntelligence[selectedRoute] ?? null
@@ -663,6 +778,7 @@ export function RouteFlowGraph({
 
   // Build graph based on mode
   const { initialNodes, initialEdges } = useMemo(() => {
+    const lowConf = extractLowConfidenceMap(manifest);
     let result: { nodes: IntelNode[]; edges: Edge[] };
 
     switch (mode) {
@@ -690,20 +806,163 @@ export function RouteFlowGraph({
         break;
     }
 
-    return { initialNodes: result.nodes, initialEdges: result.edges };
+    return {
+      initialNodes: decorateConfidence(result.nodes, lowConf),
+      initialEdges: result.edges,
+    };
   }, [mode, manifest, selectedIntel]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Update nodes/edges when mode or selection changes.
+  // Update nodes/edges when mode or selection changes. Reset focus + search
+  // + type filters too — they are graph-local and would otherwise reference
+  // stale node ids.
   useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
+    setFocusNodeId(null);
+    setSearchQuery("");
+    setHiddenTypes(new Set());
   }, [initialNodes, initialEdges, setNodes, setEdges]);
+
+  // Keyboard shortcuts: `/` focuses the filter input, `Esc` clears focus +
+  // search + type filters. Ignored when the user is typing in any input so
+  // we don't hijack normal typing.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (event.key === "/" && !isTyping) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (event.key === "Escape") {
+        setFocusNodeId(null);
+        setSearchQuery("");
+        setHiddenTypes(new Set());
+        (target as HTMLInputElement | null)?.blur?.();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Adjacency built once per graph build — used for N-hop BFS from the
+  // focused node. Cheaper than re-scanning edges N times.
+  const adjacency = useMemo<Map<string, string[]>>(() => {
+    const adj = new Map<string, string[]>();
+    const push = (a: string, b: string) => {
+      const list = adj.get(a);
+      if (list) list.push(b);
+      else adj.set(a, [b]);
+    };
+    for (const edge of initialEdges) {
+      push(edge.source, edge.target);
+      push(edge.target, edge.source);
+    }
+    return adj;
+  }, [initialEdges]);
+
+  // Compute the visible set whenever focus / search / type filters / topology
+  // change. `null` means "no constraint, show everything at full opacity".
+  const visibleNodeIds = useMemo<Set<string> | null>(() => {
+    const trimmedQuery = searchQuery.trim().toLowerCase();
+    const hasFocus = focusNodeId !== null;
+    const hasQuery = trimmedQuery.length > 0;
+    const hasTypeFilter = hiddenTypes.size > 0;
+    if (!hasFocus && !hasQuery && !hasTypeFilter) return null;
+
+    const visible = new Set<string>();
+
+    if (hasFocus && focusNodeId) {
+      // N-hop BFS from the focused node.
+      visible.add(focusNodeId);
+      let frontier: string[] = [focusNodeId];
+      for (let hop = 0; hop < focusDepth; hop += 1) {
+        const next: string[] = [];
+        for (const id of frontier) {
+          const neighbors = adjacency.get(id);
+          if (!neighbors) continue;
+          for (const n of neighbors) {
+            if (!visible.has(n)) {
+              visible.add(n);
+              next.push(n);
+            }
+          }
+        }
+        if (next.length === 0) break;
+        frontier = next;
+      }
+    }
+
+    if (hasQuery) {
+      for (const node of initialNodes) {
+        const label = String(node.data?.label ?? "").toLowerCase();
+        if (label.includes(trimmedQuery)) visible.add(node.id);
+      }
+    }
+
+    if (!hasFocus && !hasQuery) {
+      // Only type-filter active: start with all nodes visible.
+      for (const node of initialNodes) visible.add(node.id);
+    }
+
+    // Apply node-type filter as a final subtractive pass.
+    if (hasTypeFilter) {
+      for (const node of initialNodes) {
+        const t = (node.data as IntelNodeData)?.nodeType;
+        if (t && hiddenTypes.has(t)) visible.delete(node.id);
+      }
+    }
+
+    return visible;
+  }, [focusNodeId, focusDepth, searchQuery, hiddenTypes, adjacency, initialNodes]);
+
+  // Apply opacity to nodes and edges in a stable derived array — we do not
+  // mutate the underlying graph so the user's drag positions are preserved.
+  const displayedNodes = useMemo<IntelNode[]>(() => {
+    if (!visibleNodeIds) return nodes;
+    return nodes.map((node) => {
+      const visible = visibleNodeIds.has(node.id);
+      return {
+        ...node,
+        style: { ...(node.style ?? {}), opacity: visible ? 1 : 0.15 },
+      };
+    });
+  }, [nodes, visibleNodeIds]);
+
+  const displayedEdges = useMemo<Edge[]>(() => {
+    if (!visibleNodeIds) return edges;
+    return edges.map((edge) => {
+      // Both endpoints must be in the visible set for the edge to feel
+      // "meaningful" — otherwise it dangles to a dimmed node.
+      const live = visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target);
+      // Animate the edges that directly touch the focused node — gives a
+      // clear "this is what depends on / is depended on by" cue without
+      // moving any other pixels.
+      const touchesFocus =
+        live &&
+        focusNodeId !== null &&
+        (edge.source === focusNodeId || edge.target === focusNodeId);
+      return {
+        ...edge,
+        animated: touchesFocus ? true : edge.animated,
+        style: { ...(edge.style ?? {}), opacity: live ? 1 : 0.08 },
+      };
+    });
+  }, [edges, visibleNodeIds, focusNodeId]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
+      // Toggle focus: clicking the focused node clears it; clicking any other
+      // node moves focus there. Route selection callback fires independently
+      // so the host dashboard can still react to route picks.
+      setFocusNodeId((prev) => (prev === node.id ? null : node.id));
       if (node.id.startsWith("route::") && onRouteSelect) {
         const path = node.id.replace("route::", "");
         onRouteSelect(path);
@@ -711,6 +970,12 @@ export function RouteFlowGraph({
     },
     [onRouteSelect]
   );
+
+  // Click on empty canvas clears focus — the standard "escape selection"
+  // gesture in graph tools.
+  const onPaneClick = useCallback(() => {
+    setFocusNodeId(null);
+  }, []);
 
   const modes: { id: GraphMode; label: string; description: string }[] = [
     { id: "route-overview", label: "Route Map", description: "All routes with shared components" },
@@ -722,15 +987,16 @@ export function RouteFlowGraph({
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={displayedNodes}
+        edges={displayedEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.1}
+        fitViewOptions={{ padding: 0.35 }}
+        minZoom={0.05}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
@@ -738,10 +1004,10 @@ export function RouteFlowGraph({
           style: { strokeWidth: 1.5 },
         }}
       >
-        <Background color="#e5e7eb" gap={20} size={1} />
+        <Background color="var(--c-border)" gap={20} size={1} />
         <Controls
           position="bottom-right"
-          style={{ background: "#fff", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+          style={{ background: "var(--c-surface)", borderRadius: "8px", border: "1px solid var(--c-border)" }}
         />
         <MiniMap
           position="bottom-left"
@@ -750,9 +1016,9 @@ export function RouteFlowGraph({
             return NODE_STYLES[nType]?.border ?? "#9ca3af";
           }}
           style={{
-            background: "#fafafa",
+            background: "var(--c-surface-alt)",
             borderRadius: "8px",
-            border: "1px solid #e5e7eb",
+            border: "1px solid var(--c-border)",
           }}
           maskColor="rgba(0,0,0,0.05)"
         />
@@ -761,9 +1027,9 @@ export function RouteFlowGraph({
         <Panel position="top-left">
           <div
             style={{
-              background: "#fff",
+              background: "var(--c-surface)",
               borderRadius: "8px",
-              border: "1px solid #e5e7eb",
+              border: "1px solid var(--c-border)",
               padding: "8px",
               display: "flex",
               flexDirection: "column",
@@ -775,7 +1041,7 @@ export function RouteFlowGraph({
               style={{
                 fontSize: "10px",
                 fontWeight: 600,
-                color: "#9ca3af",
+                color: "var(--c-text-faint)",
                 textTransform: "uppercase",
                 letterSpacing: "0.05em",
                 padding: "0 4px 4px",
@@ -791,8 +1057,8 @@ export function RouteFlowGraph({
                   padding: "6px 10px",
                   borderRadius: "6px",
                   border: "none",
-                  background: mode === m.id ? "#eff6ff" : "transparent",
-                  color: mode === m.id ? "#2563eb" : "#374151",
+                  background: mode === m.id ? "var(--c-accent-bg)" : "transparent",
+                  color: mode === m.id ? "var(--c-accent)" : "var(--c-text)",
                   cursor: "pointer",
                   fontSize: "12px",
                   fontWeight: mode === m.id ? 600 : 400,
@@ -804,10 +1070,78 @@ export function RouteFlowGraph({
                 {m.label}
               </button>
             ))}
+
+            {/* Route picker — visible in Route Map and Route Detail. Selecting
+                a route from the dropdown jumps to Route Detail view for that
+                route. Picking the blank option from Route Detail returns to
+                the full Route Map overview. */}
+            {(mode === "route-overview" || mode === "route-detail") && (
+              <div
+                style={{
+                  borderTop: "1px solid var(--c-border)",
+                  marginTop: "4px",
+                  paddingTop: "6px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                <label
+                  htmlFor="route-picker"
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    color: "var(--c-text-faint)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    padding: "0 4px",
+                  }}
+                >
+                  Focus Route
+                </label>
+                <select
+                  id="route-picker"
+                  data-testid="route-picker"
+                  value={mode === "route-detail" && selectedRoute ? selectedRoute : ""}
+                  onChange={(event) => {
+                    const path = event.target.value;
+                    if (!path) {
+                      setMode("route-overview");
+                      return;
+                    }
+                    onRouteSelect?.(path);
+                    setMode("route-detail");
+                  }}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--c-border)",
+                    background: "var(--c-surface)",
+                    color: "var(--c-text)",
+                    fontSize: "11px",
+                    fontFamily: "monospace",
+                    maxWidth: "220px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="">— all routes —</option>
+                  {Object.values(manifest.routeIntelligence)
+                    .slice()
+                    .sort((a, b) => a.path.localeCompare(b.path))
+                    .map((route) => (
+                      <option key={route.path} value={route.path}>
+                        {route.path}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
           </div>
         </Panel>
 
-        {/* Legend Panel */}
+        {/* Legend Panel — each row is a clickable filter. Hidden types get a
+            strikethrough + reduced opacity and are removed from the visible
+            set, but stay listed so the user can re-enable them. */}
         <Panel position="top-right">
           <div
             style={{
@@ -829,27 +1163,216 @@ export function RouteFlowGraph({
                 textTransform: "uppercase",
                 letterSpacing: "0.05em",
                 marginBottom: "2px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
               }}
             >
-              Legend
+              <span>Legend</span>
+              {hiddenTypes.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setHiddenTypes(new Set())}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "#6b7280",
+                    fontSize: "9px",
+                    cursor: "pointer",
+                    padding: 0,
+                    textTransform: "none",
+                    letterSpacing: 0,
+                  }}
+                  title="Show all node types"
+                >
+                  show all
+                </button>
+              )}
             </div>
             {Object.entries(NODE_STYLES)
               .filter(([key]) => !["group", "loading", "error"].includes(key))
-              .map(([key, style]) => (
-                <div key={key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span
+              .map(([key, style]) => {
+                const hidden = hiddenTypes.has(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() =>
+                      setHiddenTypes((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        return next;
+                      })
+                    }
+                    title={hidden ? `Show ${key} nodes` : `Hide ${key} nodes`}
                     style={{
-                      width: "10px",
-                      height: "10px",
-                      borderRadius: "3px",
-                      background: style.bg,
-                      border: `1px solid ${style.border}`,
-                      display: "inline-block",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      border: "none",
+                      background: "transparent",
+                      padding: "2px 4px",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      opacity: hidden ? 0.4 : 1,
+                      textAlign: "left",
                     }}
-                  />
-                  <span style={{ color: "#6b7280" }}>{key}</span>
-                </div>
-              ))}
+                  >
+                    <span
+                      style={{
+                        width: "10px",
+                        height: "10px",
+                        borderRadius: "3px",
+                        background: style.bg,
+                        border: `1px solid ${style.border}`,
+                        display: "inline-block",
+                      }}
+                    />
+                    <span
+                      style={{
+                        color: "#6b7280",
+                        textDecoration: hidden ? "line-through" : "none",
+                      }}
+                    >
+                      {key}
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </Panel>
+
+        {/* Search + focus controls. Compact so they don't overlap the mode
+            panel (top-left) or legend (top-right). */}
+        <Panel position="top-center">
+          <div
+            style={{
+              background: "var(--c-surface)",
+              borderRadius: "8px",
+              border: "1px solid var(--c-border)",
+              padding: "6px 8px",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Filter nodes...  ( / )"
+              style={{
+                width: "180px",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "1px solid var(--c-border)",
+                fontSize: "11px",
+                outline: "none",
+                background: "var(--c-surface)",
+                color: "var(--c-text)",
+              }}
+              data-testid="graph-search"
+            />
+            {focusNodeId && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "2px",
+                  borderLeft: "1px solid var(--c-border)",
+                  paddingLeft: "6px",
+                }}
+                title="Focus depth — how many hops out from the focused node to keep visible"
+              >
+                <span
+                  style={{
+                    fontSize: "9px",
+                    color: "var(--c-text-faint)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  hops
+                </span>
+                {[1, 2, 3].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setFocusDepth(d as 1 | 2 | 3)}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      border: "1px solid var(--c-border)",
+                      background:
+                        focusDepth === d ? "var(--c-accent-bg)" : "transparent",
+                      color:
+                        focusDepth === d ? "var(--c-accent)" : "var(--c-text-muted)",
+                      cursor: "pointer",
+                      fontSize: "10px",
+                      fontWeight: focusDepth === d ? 700 : 500,
+                      minWidth: "22px",
+                    }}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            )}
+            {(focusNodeId || searchQuery || hiddenTypes.size > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusNodeId(null);
+                  setSearchQuery("");
+                  setHiddenTypes(new Set());
+                }}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: "6px",
+                  border: "1px solid var(--c-border)",
+                  background: "var(--c-surface)",
+                  color: "var(--c-text-muted)",
+                  cursor: "pointer",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                }}
+                title="Clear focus, filter, and type visibility  ( Esc )"
+              >
+                Clear
+              </button>
+            )}
+            {visibleNodeIds && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  color: "var(--c-text-faint)",
+                  fontFamily: "monospace",
+                  whiteSpace: "nowrap",
+                }}
+                title="Visible nodes / total nodes"
+              >
+                {visibleNodeIds.size} / {initialNodes.length}
+              </span>
+            )}
+            {focusNodeId && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  color: "var(--c-text-faint)",
+                  fontFamily: "monospace",
+                  maxWidth: "180px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={focusNodeId}
+              >
+                focus: {focusNodeId.replace(/^(route|comp|reusable)::/, "")}
+              </span>
+            )}
           </div>
         </Panel>
 

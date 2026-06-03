@@ -48,6 +48,7 @@ export class VerificationPass {
     this.checkInvalidRouteOwnership(params.routes, params.components);
     this.checkCircularOwnership(params.graphs.compositeOwnership.edges);
     this.checkDuplicateCompositeRegistration(params.composites);
+    this.checkLowConfidenceComposites(params.composites);
     this.checkRenderCycles(params.graphs.render.edges);
 
     if (params.runtime && Object.keys(params.runtime).length > 0) {
@@ -101,6 +102,10 @@ export class VerificationPass {
           message: `Component "${comp.name}" (${comp.id}) is not reachable from any route`,
           file: comp.relativePath,
           nodeId: comp.id,
+          suggestion:
+            "Import this component from a page, layout, or another reachable component, " +
+            "or delete it if no longer needed. Orphans are info-level only and do not fail builds.",
+          docUrl: "https://github.com/i2cinc/nextJs-intelligence#orphan-node",
         });
       }
     }
@@ -125,6 +130,10 @@ export class VerificationPass {
             file: comp.relativePath,
             nodeId: comp.id,
             context: { unresolvedTag: child },
+            suggestion:
+              `Add an import for <${child} /> in ${comp.relativePath}, or check the tag spelling. ` +
+              "If <" + child + " /> is an intentional native/HTML element, this diagnostic can be safely ignored.",
+            docUrl: "https://github.com/i2cinc/nextJs-intelligence#unresolved-jsx",
           });
         }
       }
@@ -146,10 +155,15 @@ export class VerificationPass {
           message: `Duplicate canonical ID "${comp.id}" for components "${comp.name}" and "${existing.name}"`,
           file: comp.relativePath,
           nodeId: comp.id,
+          relatedNodes: [existing.id],
           context: {
             existingFile: existing.relativePath,
             duplicateFile: comp.relativePath,
           },
+          suggestion:
+            "Two components share the same canonical id. Rename one of them or move it to a " +
+            "different file so identities stay unique. Canonical ids are `path#exportName`.",
+          docUrl: "https://github.com/i2cinc/nextJs-intelligence#duplicate-canonical-id",
         });
       } else {
         seen.set(comp.id, comp);
@@ -206,7 +220,12 @@ export class VerificationPass {
           severity: "error",
           message: `Circular composite ownership detected: ${cycle.join(" → ")}`,
           nodeId: node,
+          relatedNodes: cycle,
           context: { cycle },
+          suggestion:
+            "A composite component cannot own itself transitively. Break the cycle by removing one " +
+            "of the ownership edges or by restructuring the composite hierarchy.",
+          docUrl: "https://github.com/i2cinc/nextJs-intelligence#circular-ownership",
         });
         return true;
       }
@@ -246,11 +265,16 @@ export class VerificationPass {
             category: "duplicate-composite-registration",
             severity: "error",
             message: `Sub-component "${fullName}" is claimed by both "${existingRoot}" and "${group.root}"`,
+            relatedNodes: [existingRoot, group.root],
             context: {
               subComponent: fullName,
               root1: existingRoot,
               root2: group.root,
             },
+            suggestion:
+              "Only one root may claim a given sub-component. Remove the duplicate `Root.Sub = X` " +
+              "assignment in one of the two roots, or split the shared sub into its own component.",
+            docUrl: "https://github.com/i2cinc/nextJs-intelligence#duplicate-composite-registration",
           });
         } else {
           subToRoot.set(fullName, group.root);
@@ -301,6 +325,49 @@ export class VerificationPass {
       if (!visited.has(node)) {
         dfs(node);
       }
+    }
+  }
+
+  /**
+   * Detect composite groups whose detection confidence is below trust
+   * thresholds. Emits `warning` below 0.7 (typically prefix-heuristic only)
+   * and `info` below 0.85 (single semantic signal). Anything >= 0.85 is
+   * silent.
+   */
+  private checkLowConfidenceComposites(
+    composites: Map<string, CompositeGroup>
+  ): void {
+    const WARN_THRESHOLD = 0.7;
+    const INFO_THRESHOLD = 0.85;
+
+    const sorted = Array.from(composites.values()).sort((a, b) =>
+      a.rootCanonicalId.localeCompare(b.rootCanonicalId)
+    );
+
+    for (const group of sorted) {
+      const score = group.confidence.score;
+      if (score >= INFO_THRESHOLD) continue;
+
+      const severity: DiagnosticSeverity = score < WARN_THRESHOLD ? "warning" : "info";
+      const evidenceList = group.confidence.evidence.length > 0
+        ? group.confidence.evidence.join(", ")
+        : "none";
+
+      this.emit({
+        category: "low-confidence-composite",
+        severity,
+        message: `Composite "${group.root}" detected with confidence ${score.toFixed(2)} (evidence: ${evidenceList})`,
+        nodeId: group.rootCanonicalId,
+        relatedNodes: group.subComponentIds,
+        suggestion: severity === "warning"
+          ? `Add a semantic signal — e.g. Object.assign(${group.root}, { ... }), \`${group.root}.Sub = ...\`, or co-locate sub-components in the same module.`
+          : `Consider adding a second semantic signal to raise confidence above ${INFO_THRESHOLD}.`,
+        context: {
+          confidence: score,
+          evidence: group.confidence.evidence,
+          subComponents: group.subComponents,
+        },
+      });
     }
   }
 

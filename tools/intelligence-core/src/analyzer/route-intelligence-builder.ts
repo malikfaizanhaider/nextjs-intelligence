@@ -9,7 +9,7 @@ import type {
   RouteComplexity,
 } from "../../../intelligence-types/src/index";
 import { isBuiltinHook } from "../../../intelligence-types/src/index";
-import { RecursiveTraverser } from "./recursive-traverser";
+import { RecursiveTraverser, InMemoryTraversalCache, type TraversalCache } from "./recursive-traverser";
 import { SearchParamsAnalyzer } from "./search-params-analyzer";
 import type { CompositeGroup } from "./composite-detector";
 import { Canonicalizer, type CanonicalizationResult } from "./canonicalizer";
@@ -44,26 +44,59 @@ export class RouteIntelligenceBuilder {
   private components: Map<string, ComponentMeta>;
   private composites: Map<string, CompositeGroup>;
   private canonicalization: CanonicalizationResult;
+  private traversalCache: TraversalCache;
+  /** Number of routes whose intelligence was reused from `reusableRoutes`
+   *  during the most recent {@link build} call. */
+  private lastReusedRouteCount = 0;
 
   constructor(
     project: Project,
     projectRoot: string,
     components: ComponentMeta[],
-    composites?: Map<string, CompositeGroup>
+    composites?: Map<string, CompositeGroup>,
+    traversalCache?: TraversalCache
   ) {
     this.project = project;
     this.projectRoot = projectRoot;
     this.components = new Map(components.map((c) => [c.relativePath, c]));
     this.composites = composites ?? new Map();
+    // One shared cache for all routes. Per-file dependency lists are invariant
+    // for a fixed project, so this collapses N route walks of shared imports
+    // into a single AST traversal per file.
+    this.traversalCache = traversalCache ?? new InMemoryTraversalCache();
 
     // Run canonicalization to get normalized lookup maps
     this.canonicalization = Canonicalizer.canonicalize(components, this.composites);
   }
 
+  /** Per-file dependency cache statistics from the last `build()` invocation. */
+  getTraversalCacheStats(): { hits: number; misses: number } {
+    return { ...this.traversalCache.stats };
+  }
+
+  /** Routes whose intelligence was reused from a prior manifest during the
+   *  most recent {@link build} call (i.e. incremental fast-path hits). */
+  getReusedRouteCount(): number {
+    return this.lastReusedRouteCount;
+  }
+
   /**
    * Build intelligence for all routes.
+   *
+   * `reusableRoutes` lets the incremental pipeline supply previously-computed
+   * {@link RouteIntelligence} entries for routes whose dependency tree is
+   * known to be unchanged. The builder will skip the (expensive) recursive
+   * AST traversal for those routes, but still folds their `components` into
+   * the `componentUsage` map so cross-run consumers see consistent counts.
+   * Entries are only honored when the supplied intelligence carries a
+   * non-empty `dependencyFiles` field (otherwise we have no way to know the
+   * decision was sound — re-analyze instead).
    */
-  build(routes: RouteMeta[], allComponents: ComponentMeta[]): RouteIntelligenceResult {
+  build(
+    routes: RouteMeta[],
+    allComponents: ComponentMeta[],
+    reusableRoutes?: Map<string, RouteIntelligence>
+  ): RouteIntelligenceResult {
     const routeIntelligence: Record<string, RouteIntelligence> = {};
     const componentUsage: ComponentUsageMap = {};
     const componentsByName = new Map<string, ComponentMeta>();
@@ -74,8 +107,16 @@ export class RouteIntelligenceBuilder {
       componentsByCanonicalId.set(comp.id, comp);
     }
 
+    let reusedCount = 0;
     for (const route of routes) {
-      const intelligence = this.analyzeRoute(route, allComponents);
+      // Reuse path: prior intelligence is trusted only when it carries the
+      // dependencyFiles provenance — without it the caller can't have made a
+      // safe reuse decision, so fall back to a fresh analysis.
+      const prior = reusableRoutes?.get(route.path);
+      const intelligence =
+        prior && prior.dependencyFiles && prior.dependencyFiles.length > 0
+          ? (reusedCount++, prior)
+          : this.analyzeRoute(route, allComponents);
       routeIntelligence[route.path] = intelligence;
 
       // Build component usage map using canonical names
@@ -99,6 +140,7 @@ export class RouteIntelligenceBuilder {
         usage.usageCount++;
       }
     }
+    this.lastReusedRouteCount = reusedCount;
 
     // Update components with usedInRoutes
     const updatedComponents = allComponents.map((comp) => {
@@ -122,8 +164,8 @@ export class RouteIntelligenceBuilder {
   private analyzeRoute(route: RouteMeta, allComponents: ComponentMeta[]): RouteIntelligence {
     const rootFiles = this.getRouteRootFiles(route);
 
-    // Recursive traversal from all root files
-    const traverser = new RecursiveTraverser(this.project, this.projectRoot);
+    // Recursive traversal from all root files — shared cache is reused per route.
+    const traverser = new RecursiveTraverser(this.project, this.projectRoot, this.traversalCache);
     const traversal = traverser.traverseMultiple(rootFiles);
 
     // Search params analysis across all files in the dependency tree
@@ -218,6 +260,26 @@ export class RouteIntelligenceBuilder {
 
     const relPath = relative(this.projectRoot, route.filePath).replace(/\\/g, "/");
 
+    // Split eager vs. lazy components. `traversal.lazyComponents` holds the
+    // canonical IDs that were reached ONLY via `next/dynamic` or `import()`.
+    // Map those canonical IDs back to component display names for parity with
+    // the existing `components` field.
+    const lazyNameSet = new Set<string>();
+    for (const canonicalId of traversal.lazyComponents) {
+      // Canonical IDs look like `path/file.tsx#ExportName` — try to find a
+      // matching component by canonical ID first, then fall back to a
+      // name-only match (sub-components share their root's canonical ID).
+      const byId = allComponents.find((c) => c.id === canonicalId);
+      const displayName = byId?.name ?? canonicalId.split("#").pop() ?? canonicalId;
+      // Only surface lazy names that actually made it into `components` after
+      // composite collapse and de-duplication.
+      if (components.includes(displayName)) {
+        lazyNameSet.add(displayName);
+      }
+    }
+    const lazyComponents = this.sortUnique(Array.from(lazyNameSet));
+    const eagerComponents = this.sortUnique(components.filter((n) => !lazyNameSet.has(n)));
+
     return {
       path: route.path,
       filePath: route.filePath,
@@ -226,6 +288,8 @@ export class RouteIntelligenceBuilder {
       searchParams: searchParamsRecord,
       dynamicParams,
       components: this.sortUnique(components),
+      lazyComponents,
+      eagerComponents,
       hooks: this.sortUnique(Array.from(traversal.hooks).filter((h) => !isBuiltinHook(h))),
       utils: this.sortUnique(Array.from(traversal.utils)),
       providers: this.sortUnique(providers),
@@ -234,6 +298,7 @@ export class RouteIntelligenceBuilder {
       charts: this.sortUnique(charts),
       dependencies: this.sortUnique(Array.from(allDeps)),
       dependencyCount: allDeps.size,
+      dependencyFiles: this.sortUnique(Array.from(traversal.allFiles)),
       complexity,
       layoutFilePath: route.layoutFilePath,
       loadingFilePath: route.loadingFilePath,

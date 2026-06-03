@@ -84,6 +84,80 @@ export class IncrementalCache {
   }
 
   /**
+   * Classify a snapshot of the current project files against the cache.
+   *
+   * Returns:
+   *   - `added`   files present in `currentFiles` but not in the cache
+   *   - `changed` files whose content hash differs from the cached entry
+   *   - `removed` files cached previously but no longer present
+   *   - `unchanged` files with matching hashes
+   *
+   * The "invalidation frontier" is `added \u222a changed \u222a removed`. A future
+   * pass-aware scheduler can use this set to decide which downstream passes
+   * (per-route intelligence, graph sub-trees) must be re-executed.
+   */
+  classifyChanges(
+    currentFiles: { filePath: string; content: string }[]
+  ): { added: string[]; changed: string[]; removed: string[]; unchanged: string[] } {
+    const added: string[] = [];
+    const changed: string[] = [];
+    const unchanged: string[] = [];
+    const seen = new Set<string>();
+
+    for (const { filePath, content } of currentFiles) {
+      seen.add(filePath);
+      const entry = this.data.entries[filePath];
+      if (!entry) {
+        added.push(filePath);
+        continue;
+      }
+      if (entry.hash !== this.computeHash(content)) {
+        changed.push(filePath);
+      } else {
+        unchanged.push(filePath);
+      }
+    }
+
+    const removed = Object.keys(this.data.entries).filter((p) => !seen.has(p));
+    return { added, changed, removed, unchanged };
+  }
+
+  /**
+   * Convenience wrapper for {@link classifyChanges} that returns just the
+   * invalidation frontier (`added \u222a changed \u222a removed`).
+   */
+  getChangedFiles(
+    currentFiles: { filePath: string; content: string }[]
+  ): string[] {
+    const { added, changed, removed } = this.classifyChanges(currentFiles);
+    return [...added, ...changed, ...removed];
+  }
+
+  /**
+   * Replace all cache entries with a snapshot of the supplied files. Use this
+   * after a successful pipeline run so the next invocation sees the exact set
+   * of files that were analyzed (any file no longer present is implicitly
+   * dropped). This is the inverse of {@link classifyChanges}: that method
+   * compares an incoming snapshot to the cache, this one *adopts* the
+   * snapshot as the new ground truth.
+   */
+  replaceAll(currentFiles: { filePath: string; content: string }[]): void {
+    const timestamp = new Date().toISOString();
+    const entries: Record<string, CacheEntry> = {};
+    for (const { filePath, content } of currentFiles) {
+      entries[filePath] = { hash: this.computeHash(content), timestamp };
+    }
+    this.data = { version: 1, entries };
+  }
+
+  /** True when the loaded cache had at least one entry (i.e. a prior run was
+   *  persisted). Used to gate "no changes → reuse manifest" short-circuit:
+   *  an empty cache means there is no previous run to reuse. */
+  hasPriorSnapshot(): boolean {
+    return Object.keys(this.data.entries).length > 0;
+  }
+
+  /**
    * Compute SHA-256 hash of content.
    */
   private computeHash(content: string): string {

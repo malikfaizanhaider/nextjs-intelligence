@@ -10,9 +10,13 @@ import type {
   ComponentUsageMap,
   DependencyGraph,
 } from "../../intelligence-types/src/index";
+import { useTheme } from "./tokens";
 
 const LazyRouteFlowGraph = lazy(() =>
   import("./route-flow-graph").then((mod) => ({ default: mod.RouteFlowGraph }))
+);
+const LazyCommandPalette = lazy(() =>
+  import("./command-palette").then((mod) => ({ default: mod.CommandPalette }))
 );
 
 // ─── Data Hook ──────────────────────────────────────────────
@@ -104,17 +108,17 @@ export function SummaryCard({ label, value, color = "#3b82f6", small }: SummaryC
   return (
     <div
       style={{
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--c-border)",
         borderRadius: "8px",
         padding: small ? "10px 12px" : "16px",
-        background: "#fff",
+        background: "var(--c-surface)",
         borderTop: `3px solid ${color}`,
       }}
     >
       <div style={{ fontSize: small ? "20px" : "28px", fontWeight: 700, color }}>
         {value}
       </div>
-      <div style={{ fontSize: small ? "11px" : "13px", color: "#6b7280", marginTop: "2px" }}>
+      <div style={{ fontSize: small ? "11px" : "13px", color: "var(--c-text-muted)", marginTop: "2px" }}>
         {label}
       </div>
     </div>
@@ -209,16 +213,16 @@ export function RouteTree({
       <div
         style={{
           padding: "12px 16px",
-          borderBottom: "1px solid #e5e7eb",
+          borderBottom: "1px solid var(--c-border)",
           fontWeight: 600,
           fontSize: "13px",
-          color: "#374151",
-          background: "#f9fafb",
+          color: "var(--c-text)",
+          background: "var(--c-surface-alt)",
         }}
       >
         Routes ({routes.length})
       </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }} role="tree" aria-label="Routes">
         {tree.map((node) => (
           <RouteTreeNode
             key={node.path}
@@ -295,31 +299,58 @@ function RouteTreeNode({
   const isSelected = selectedRoute === node.path;
   const intel = routeIntelligence[node.path];
   const hasChildren = node.children.length > 0;
+  const isInteractive = node.isRoute || hasChildren;
+
+  const activate = () => {
+    if (node.isRoute) onSelectRoute(node.path);
+    if (hasChildren) setExpanded((v) => !v);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      activate();
+    } else if (event.key === "ArrowRight" && hasChildren && !expanded) {
+      setExpanded(true);
+    } else if (event.key === "ArrowLeft" && hasChildren && expanded) {
+      setExpanded(false);
+    }
+  };
 
   return (
     <div>
       <div
-        onClick={() => {
-          if (node.isRoute) onSelectRoute(node.path);
-          if (hasChildren) setExpanded(!expanded);
-        }}
+        onClick={activate}
+        onKeyDown={isInteractive ? handleKeyDown : undefined}
+        role={isInteractive ? "treeitem" : undefined}
+        tabIndex={isInteractive ? 0 : -1}
+        aria-level={depth + 1}
+        aria-selected={node.isRoute ? isSelected : undefined}
+        aria-expanded={hasChildren ? expanded : undefined}
         style={{
           padding: "5px 12px",
           paddingLeft: `${12 + depth * 16}px`,
           display: "flex",
           alignItems: "center",
           gap: "6px",
-          cursor: node.isRoute ? "pointer" : hasChildren ? "pointer" : "default",
+          cursor: isInteractive ? "pointer" : "default",
           background: isSelected ? "#eff6ff" : "transparent",
           borderRight: isSelected ? "3px solid #3b82f6" : "3px solid transparent",
           fontSize: "13px",
           fontFamily: "monospace",
           color: node.isRoute ? "#111827" : "#9ca3af",
           fontWeight: isSelected ? 600 : 400,
+          outline: "none",
+        }}
+        onFocus={(event) => {
+          event.currentTarget.style.boxShadow = "inset 0 0 0 2px #3b82f6";
+        }}
+        onBlur={(event) => {
+          event.currentTarget.style.boxShadow = "none";
         }}
       >
         {hasChildren && (
-          <span style={{ fontSize: "10px", color: "#9ca3af", width: "12px" }}>
+          <span style={{ fontSize: "10px", color: "var(--c-text-faint)", width: "12px" }}>
             {expanded ? "▼" : "▶"}
           </span>
         )}
@@ -329,7 +360,7 @@ function RouteTreeNode({
           <span
             style={{
               fontSize: "10px",
-              color: "#9ca3af",
+              color: "var(--c-text-faint)",
               fontFamily: "system-ui",
             }}
           >
@@ -379,7 +410,7 @@ export function RouteIntelligencePanel({
           alignItems: "center",
           justifyContent: "center",
           height: "100%",
-          color: "#9ca3af",
+          color: "var(--c-text-faint)",
           fontSize: "14px",
         }}
       >
@@ -410,12 +441,12 @@ export function RouteIntelligencePanel({
             fontWeight: 700,
             fontFamily: "monospace",
             margin: "0 0 4px 0",
-            color: "#111827",
+            color: "var(--c-text)",
           }}
         >
           {path}
         </h2>
-        <div style={{ fontSize: "12px", color: "#6b7280", fontFamily: "monospace" }}>
+        <div style={{ fontSize: "12px", color: "var(--c-text-muted)", fontFamily: "monospace" }}>
           {intelligence.relativePath}
         </div>
       </div>
@@ -469,27 +500,7 @@ export function RouteIntelligencePanel({
       {/* Search Params */}
       {searchParamEntries.length > 0 && (
         <IntelSection title="Search Params" color="#f59e0b">
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {searchParamEntries.map(([param, usage]) => (
-              <div
-                key={param}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "4px 8px",
-                  background: "#fffbeb",
-                  borderRadius: "4px",
-                  fontSize: "12px",
-                }}
-              >
-                <code style={{ fontWeight: 600, color: "#92400e" }}>{param}</code>
-                <span style={{ color: "#6b7280" }}>
-                  {usage.usedIn.join(", ")} ({usage.accessPattern})
-                </span>
-              </div>
-            ))}
-          </div>
+          <SearchParamsView entries={searchParamEntries} />
         </IntelSection>
       )}
 
@@ -505,6 +516,9 @@ export function RouteIntelligencePanel({
                   // Find composite info
                   const compMeta = Object.values(allComponents).find((c) => c.name === item);
                   const isComposite = compMeta?.isComposite ?? false;
+                  const isLazy =
+                    section.type === "component" &&
+                    intelligence.lazyComponents?.includes(item) === true;
                   return (
                     <div key={item}>
                       <div
@@ -534,6 +548,23 @@ export function RouteIntelligencePanel({
                               }}
                             >
                               composite
+                            </span>
+                          )}
+                          {isLazy && (
+                            <span
+                              style={{
+                                fontSize: "9px",
+                                marginLeft: "6px",
+                                padding: "1px 5px",
+                                borderRadius: "9999px",
+                                background: "#fef3c7",
+                                color: "#92400e",
+                                fontWeight: 600,
+                                fontFamily: "system-ui",
+                              }}
+                              title="Loaded via next/dynamic or import()"
+                            >
+                              lazy
                             </span>
                           )}
                         </span>
@@ -571,7 +602,7 @@ export function RouteIntelligencePanel({
                                 padding: "1px 6px",
                                 borderRadius: "4px",
                                 background: "#f3f4f6",
-                                color: "#6b7280",
+                                color: "var(--c-text-muted)",
                                 fontFamily: "monospace",
                               }}
                             >
@@ -651,14 +682,14 @@ function FileRow({ label, path }: { label: string; path: string }) {
         style={{
           fontSize: "10px",
           fontWeight: 600,
-          color: "#6b7280",
+          color: "var(--c-text-muted)",
           textTransform: "uppercase",
           width: "60px",
         }}
       >
         {label}
       </span>
-      <code style={{ color: "#374151", fontFamily: "monospace", fontSize: "11px" }}>
+      <code style={{ color: "var(--c-text)", fontFamily: "monospace", fontSize: "11px" }}>
         {typeof path === "string" ? path.replace(/\\/g, "/").split("/").slice(-3).join("/") : ""}
       </code>
     </div>
@@ -695,7 +726,7 @@ export function DependencyHierarchy({
           alignItems: "center",
           justifyContent: "center",
           height: "100%",
-          color: "#9ca3af",
+          color: "var(--c-text-faint)",
           fontSize: "13px",
         }}
       >
@@ -709,11 +740,11 @@ export function DependencyHierarchy({
       <div
         style={{
           padding: "12px 16px",
-          borderBottom: "1px solid #e5e7eb",
+          borderBottom: "1px solid var(--c-border)",
           fontWeight: 600,
           fontSize: "13px",
-          color: "#374151",
-          background: "#f9fafb",
+          color: "var(--c-text)",
+          background: "var(--c-surface-alt)",
         }}
       >
         Dependencies ({intelligence.dependencyCount})
@@ -789,10 +820,30 @@ function DepTreeNode({ node, depth }: { node: DepNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children.length > 0;
 
+  const toggle = () => {
+    if (hasChildren) setExpanded((v) => !v);
+  };
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!hasChildren) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+    } else if (event.key === "ArrowRight" && !expanded) {
+      setExpanded(true);
+    } else if (event.key === "ArrowLeft" && expanded) {
+      setExpanded(false);
+    }
+  };
+
   return (
     <div>
       <div
-        onClick={() => hasChildren && setExpanded(!expanded)}
+        onClick={toggle}
+        onKeyDown={hasChildren ? handleKeyDown : undefined}
+        role={hasChildren ? "treeitem" : undefined}
+        tabIndex={hasChildren ? 0 : -1}
+        aria-level={depth + 1}
+        aria-expanded={hasChildren ? expanded : undefined}
         style={{
           padding: "3px 12px",
           paddingLeft: `${12 + depth * 16}px`,
@@ -804,10 +855,17 @@ function DepTreeNode({ node, depth }: { node: DepNode; depth: number }) {
           fontFamily: node.type === "group" ? "system-ui" : "monospace",
           fontWeight: node.type === "group" ? 600 : 400,
           color: node.type === "group" ? "#374151" : "#111827",
+          outline: "none",
+        }}
+        onFocus={(event) => {
+          event.currentTarget.style.boxShadow = "inset 0 0 0 2px #3b82f6";
+        }}
+        onBlur={(event) => {
+          event.currentTarget.style.boxShadow = "none";
         }}
       >
         {hasChildren ? (
-          <span style={{ fontSize: "9px", color: "#9ca3af", width: "10px" }}>
+          <span style={{ fontSize: "9px", color: "var(--c-text-faint)", width: "10px" }}>
             {expanded ? "▼" : "▶"}
           </span>
         ) : (
@@ -843,14 +901,14 @@ export function ComponentUsageTable({ componentUsage }: ComponentUsageTableProps
   const reusable = entries.filter((e) => e.usedInRoutes.length > 1);
 
   return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden" }}>
+    <div style={{ border: "1px solid var(--c-border)", borderRadius: "8px", overflow: "hidden" }}>
       <div
         style={{
           padding: "12px 16px",
-          background: "#f9fafb",
+          background: "var(--c-surface-alt)",
           fontWeight: 600,
           fontSize: "14px",
-          borderBottom: "1px solid #e5e7eb",
+          borderBottom: "1px solid var(--c-border)",
         }}
       >
         Reusable Components ({reusable.length})
@@ -858,7 +916,7 @@ export function ComponentUsageTable({ componentUsage }: ComponentUsageTableProps
       <div style={{ overflowX: "auto", maxHeight: "400px", overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
           <thead>
-            <tr style={{ background: "#f9fafb", position: "sticky", top: 0 }}>
+            <tr style={{ background: "var(--c-surface-alt)", position: "sticky", top: 0 }}>
               <th style={thStyle}>Component</th>
               <th style={thStyle}>Type</th>
               <th style={thStyle}>Routes</th>
@@ -867,7 +925,7 @@ export function ComponentUsageTable({ componentUsage }: ComponentUsageTableProps
           </thead>
           <tbody>
             {reusable.map((entry) => (
-              <tr key={entry.name} style={{ borderBottom: "1px solid #f3f4f6" }}>
+              <tr key={entry.name} style={{ borderBottom: "1px solid var(--c-border-subtle)" }}>
                 <td style={tdStyle}>
                   <code style={{ fontWeight: 500, fontSize: "12px" }}>{entry.name}</code>
                 </td>
@@ -916,10 +974,10 @@ const thStyle: React.CSSProperties = {
   padding: "8px 12px",
   fontWeight: 600,
   fontSize: "11px",
-  color: "#6b7280",
+  color: "var(--c-text-muted)",
   textTransform: "uppercase",
   letterSpacing: "0.05em",
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: "1px solid var(--c-border)",
 };
 
 const tdStyle: React.CSSProperties = {
@@ -940,11 +998,11 @@ export function RuntimeTree({ runtime, components }: RuntimeTreeProps) {
     return (
       <div
         style={{
-          border: "1px solid #e5e7eb",
+          border: "1px solid var(--c-border)",
           borderRadius: "8px",
           padding: "24px",
           textAlign: "center",
-          color: "#9ca3af",
+          color: "var(--c-text-faint)",
           fontSize: "13px",
         }}
       >
@@ -954,14 +1012,14 @@ export function RuntimeTree({ runtime, components }: RuntimeTreeProps) {
   }
 
   return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden" }}>
+    <div style={{ border: "1px solid var(--c-border)", borderRadius: "8px", overflow: "hidden" }}>
       <div
         style={{
           padding: "12px 16px",
-          background: "#f9fafb",
+          background: "var(--c-surface-alt)",
           fontWeight: 600,
           fontSize: "14px",
-          borderBottom: "1px solid #e5e7eb",
+          borderBottom: "1px solid var(--c-border)",
         }}
       >
         Runtime ({entries.length})
@@ -974,7 +1032,7 @@ export function RuntimeTree({ runtime, components }: RuntimeTreeProps) {
               key={meta.componentId}
               style={{
                 padding: "8px 16px",
-                borderBottom: "1px solid #f3f4f6",
+                borderBottom: "1px solid var(--c-border-subtle)",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
@@ -987,7 +1045,7 @@ export function RuntimeTree({ runtime, components }: RuntimeTreeProps) {
                 </span>
                 {component && <TypeBadge type={component.type} />}
               </div>
-              <div style={{ display: "flex", gap: "12px", color: "#6b7280", fontSize: "11px" }}>
+              <div style={{ display: "flex", gap: "12px", color: "var(--c-text-muted)", fontSize: "11px" }}>
                 <span>M:{meta.mountCount}</span>
                 <span>R:{meta.renderCount}</span>
                 <span>{meta.averageRenderDuration.toFixed(1)}ms</span>
@@ -998,6 +1056,745 @@ export function RuntimeTree({ runtime, components }: RuntimeTreeProps) {
       </div>
     </div>
   );
+}
+
+// ─── Search Params View (grouped by access pattern) ────────
+
+const ACCESS_PATTERN_LABEL: Record<string, string> = {
+  searchParams: "props.searchParams",
+  useSearchParams: "useSearchParams()",
+  params: "props.params",
+};
+
+function SearchParamsView({
+  entries,
+}: {
+  entries: [string, import("../../intelligence-types/src/index").SearchParamUsage][];
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<
+      string,
+      [string, import("../../intelligence-types/src/index").SearchParamUsage][]
+    >();
+    for (const entry of entries) {
+      const key = entry[1].accessPattern;
+      const list = map.get(key) ?? [];
+      list.push(entry);
+      map.set(key, list);
+    }
+    return Array.from(map.entries());
+  }, [entries]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {groups.map(([pattern, items]) => (
+        <div key={pattern}>
+          <div
+            style={{
+              fontSize: "10px",
+              fontWeight: 600,
+              color: "#92400e",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              marginBottom: "4px",
+            }}
+          >
+            {ACCESS_PATTERN_LABEL[pattern] ?? pattern} · {items.length}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            {items.map(([param, usage]) => (
+              <div
+                key={param}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "4px 8px",
+                  background: "#fffbeb",
+                  borderRadius: "4px",
+                  fontSize: "12px",
+                  gap: "12px",
+                }}
+              >
+                <code style={{ fontWeight: 600, color: "#92400e" }}>{param}</code>
+                <span
+                  style={{
+                    color: "var(--c-text-muted)",
+                    fontSize: "11px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={usage.usedIn.join(", ")}
+                >
+                  {usage.usedIn.length} reader{usage.usedIn.length === 1 ? "" : "s"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Diagnostics Panel ──────────────────────────────────────
+
+const SEVERITY_STYLES: Record<
+  string,
+  { bg: string; text: string; border: string; icon: string }
+> = {
+  error: { bg: "#fee2e2", text: "#991b1b", border: "#fca5a5", icon: "✖" },
+  warning: { bg: "#fef3c7", text: "#92400e", border: "#fcd34d", icon: "⚠" },
+  info: { bg: "#dbeafe", text: "#1e40af", border: "#93c5fd", icon: "ℹ" },
+};
+
+interface DiagnosticsPanelProps {
+  diagnostics: IntelligenceManifest["diagnostics"];
+  onJumpToRoute?: (path: string) => void;
+}
+
+export function DiagnosticsPanel({ diagnostics, onJumpToRoute }: DiagnosticsPanelProps) {
+  const [severityFilter, setSeverityFilter] = useState<"all" | "error" | "warning" | "info">(
+    "all"
+  );
+
+  const filtered = useMemo(
+    () =>
+      severityFilter === "all"
+        ? diagnostics
+        : diagnostics.filter((d) => d.severity === severityFilter),
+    [diagnostics, severityFilter]
+  );
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof filtered>();
+    for (const d of filtered) {
+      const list = map.get(d.category) ?? [];
+      list.push(d);
+      map.set(d.category, list);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
+  }, [filtered]);
+
+  if (diagnostics.length === 0) {
+    return (
+      <div
+        style={{
+          border: "1px solid var(--c-border)",
+          borderRadius: "8px",
+          padding: "32px",
+          textAlign: "center",
+          color: "#10b981",
+          fontSize: "14px",
+          background: "#f0fdf4",
+        }}
+      >
+        ✓ No diagnostics — analyzer found no issues.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      {/* Filter chips */}
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+        {(["all", "error", "warning", "info"] as const).map((sev) => {
+          const count =
+            sev === "all" ? diagnostics.length : diagnostics.filter((d) => d.severity === sev).length;
+          const active = severityFilter === sev;
+          const stylesForSev = sev === "all" ? null : SEVERITY_STYLES[sev]!;
+          return (
+            <button
+              key={sev}
+              type="button"
+              onClick={() => setSeverityFilter(sev)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: "9999px",
+                border: "1px solid",
+                borderColor: active
+                  ? stylesForSev?.border ?? "#3b82f6"
+                  : "#e5e7eb",
+                background: active ? stylesForSev?.bg ?? "#eff6ff" : "#fff",
+                color: active ? stylesForSev?.text ?? "#3b82f6" : "#6b7280",
+                cursor: "pointer",
+                fontSize: "11px",
+                fontWeight: active ? 700 : 500,
+                textTransform: "capitalize",
+                display: "flex",
+                gap: "6px",
+                alignItems: "center",
+              }}
+            >
+              {stylesForSev && <span>{stylesForSev.icon}</span>}
+              {sev}
+              <span style={{ opacity: 0.7 }}>({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Grouped list */}
+      {grouped.map(([category, items]) => (
+        <div
+          key={category}
+          style={{ border: "1px solid var(--c-border)", borderRadius: "8px", overflow: "hidden" }}
+        >
+          <div
+            style={{
+              padding: "10px 14px",
+              background: "var(--c-surface-alt)",
+              fontWeight: 600,
+              fontSize: "13px",
+              color: "var(--c-text)",
+              borderBottom: "1px solid var(--c-border)",
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
+            <span style={{ fontFamily: "monospace" }}>{category}</span>
+            <span style={{ color: "var(--c-text-muted)", fontSize: "11px" }}>{items.length}</span>
+          </div>
+          <div>
+            {items.map((d, idx) => (
+              <DiagnosticRow
+                key={`${category}-${idx}`}
+                diagnostic={d}
+                onJumpToRoute={onJumpToRoute}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DiagnosticRow({
+  diagnostic,
+  onJumpToRoute,
+}: {
+  diagnostic: IntelligenceManifest["diagnostics"][number];
+  onJumpToRoute?: (path: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const sev = SEVERITY_STYLES[diagnostic.severity] ?? SEVERITY_STYLES.info!;
+  const hasDetails =
+    Boolean(diagnostic.suggestion) ||
+    Boolean(diagnostic.docUrl) ||
+    (Array.isArray(diagnostic.relatedNodes) && diagnostic.relatedNodes.length > 0);
+
+  return (
+    <div
+      style={{
+        padding: "10px 14px",
+        borderBottom: "1px solid var(--c-border-subtle)",
+        fontSize: "12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px",
+        background: "var(--c-surface)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+        <span
+          style={{
+            color: sev.text,
+            background: sev.bg,
+            border: `1px solid ${sev.border}`,
+            padding: "1px 6px",
+            borderRadius: "4px",
+            fontSize: "10px",
+            fontWeight: 700,
+            whiteSpace: "nowrap",
+            lineHeight: 1.5,
+          }}
+        >
+          {sev.icon} {diagnostic.severity}
+        </span>
+        <div style={{ flex: 1, color: "var(--c-text)", lineHeight: 1.45 }}>{diagnostic.message}</div>
+        {hasDetails && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            style={{
+              background: "transparent",
+              border: "1px solid var(--c-border)",
+              borderRadius: "4px",
+              padding: "0 6px",
+              cursor: "pointer",
+              fontSize: "10px",
+              color: "var(--c-text-muted)",
+            }}
+          >
+            {open ? "−" : "+"}
+          </button>
+        )}
+      </div>
+
+      {(diagnostic.file || diagnostic.nodeId) && (
+        <div style={{ color: "var(--c-text-muted)", fontFamily: "monospace", fontSize: "11px" }}>
+          {diagnostic.file && <span>{diagnostic.file}</span>}
+          {diagnostic.file && diagnostic.nodeId && <span> · </span>}
+          {diagnostic.nodeId && <span>{diagnostic.nodeId}</span>}
+        </div>
+      )}
+
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
+          {diagnostic.suggestion && (
+            <div
+              style={{
+                background: "var(--c-surface-alt)",
+                border: "1px solid var(--c-border)",
+                borderRadius: "6px",
+                padding: "8px 10px",
+                color: "var(--c-text)",
+                lineHeight: 1.5,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "var(--c-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  marginBottom: "4px",
+                }}
+              >
+                Suggestion
+              </div>
+              {diagnostic.suggestion}
+            </div>
+          )}
+          {Array.isArray(diagnostic.relatedNodes) && diagnostic.relatedNodes.length > 0 && (
+            <div>
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "var(--c-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  marginBottom: "4px",
+                }}
+              >
+                Related
+              </div>
+              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                {diagnostic.relatedNodes.map((node) => (
+                  <button
+                    key={node}
+                    type="button"
+                    onClick={() => onJumpToRoute?.(node)}
+                    style={{
+                      fontSize: "10px",
+                      fontFamily: "monospace",
+                      background: "#f3f4f6",
+                      border: "1px solid var(--c-border)",
+                      borderRadius: "4px",
+                      padding: "1px 6px",
+                      cursor: onJumpToRoute ? "pointer" : "default",
+                      color: "var(--c-text)",
+                    }}
+                  >
+                    {node}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {diagnostic.docUrl && (
+            <a
+              href={diagnostic.docUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: "#3b82f6",
+                fontSize: "11px",
+                textDecoration: "none",
+              }}
+            >
+              📖 Read documentation →
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── API Routes Panel ───────────────────────────────────────
+
+export function ApiRoutesPanel({ apiRoutes }: { apiRoutes: IntelligenceManifest["apiRoutes"] }) {
+  if (apiRoutes.length === 0) {
+    return <EmptyPanel message="No API routes found (no route.ts files)." />;
+  }
+  return (
+    <div style={{ border: "1px solid var(--c-border)", borderRadius: "8px", overflow: "hidden" }}>
+      <PanelHeader title="API Routes" count={apiRoutes.length} />
+      <div style={{ overflowX: "auto", maxHeight: "500px", overflowY: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+          <thead>
+            <tr style={{ background: "var(--c-surface-alt)", position: "sticky", top: 0 }}>
+              <th style={thStyle}>Path</th>
+              <th style={thStyle}>Methods</th>
+              <th style={thStyle}>Segment</th>
+              <th style={thStyle}>File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {apiRoutes.map((route) => (
+              <tr key={route.path} style={{ borderBottom: "1px solid var(--c-border-subtle)" }}>
+                <td style={tdStyle}>
+                  <code style={{ fontSize: "12px", fontWeight: 500 }}>{route.path}</code>
+                </td>
+                <td style={tdStyle}>
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                    {route.methods.map((m) => (
+                      <span
+                        key={m}
+                        style={{
+                          fontSize: "10px",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          background: methodColor(m).bg,
+                          color: methodColor(m).text,
+                          fontWeight: 700,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td style={tdStyle}>
+                  <TypeBadge type={route.isDynamic ? "dynamic" : route.segmentType} />
+                </td>
+                <td style={tdStyle}>
+                  <code style={{ fontSize: "11px", color: "var(--c-text-muted)" }}>{route.relativePath}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function methodColor(method: string): { bg: string; text: string } {
+  switch (method) {
+    case "GET":
+      return { bg: "#dcfce7", text: "#166534" };
+    case "POST":
+      return { bg: "#dbeafe", text: "#1e40af" };
+    case "PUT":
+    case "PATCH":
+      return { bg: "#fef3c7", text: "#92400e" };
+    case "DELETE":
+      return { bg: "#fee2e2", text: "#991b1b" };
+    default:
+      return { bg: "#f3f4f6", text: "#374151" };
+  }
+}
+
+// ─── Middleware Panel ───────────────────────────────────────
+
+export function MiddlewarePanel({
+  middleware,
+}: {
+  middleware: IntelligenceManifest["middleware"];
+}) {
+  if (middleware.length === 0) {
+    return <EmptyPanel message="No middleware found (no middleware.ts file)." />;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {middleware.map((mw) => (
+        <div
+          key={mw.relativePath}
+          style={{ border: "1px solid var(--c-border)", borderRadius: "8px", overflow: "hidden" }}
+        >
+          <PanelHeader title={mw.relativePath} count={undefined} />
+          <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--c-text)" }}>
+            <div style={{ marginBottom: "8px" }}>
+              <strong>Default export:</strong>{" "}
+              <span style={{ color: mw.hasDefaultExport ? "#10b981" : "#ef4444" }}>
+                {mw.hasDefaultExport ? "✓ present" : "✖ missing"}
+              </span>
+            </div>
+            <div>
+              <strong>Matchers:</strong>{" "}
+              {mw.matcher === null ? (
+                <em style={{ color: "var(--c-text-muted)" }}>none / dynamic</em>
+              ) : mw.matcher.length === 0 ? (
+                <em style={{ color: "var(--c-text-muted)" }}>empty (runs on every request)</em>
+              ) : (
+                <div
+                  style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "4px" }}
+                >
+                  {mw.matcher.map((m) => (
+                    <code
+                      key={m}
+                      style={{
+                        fontSize: "11px",
+                        background: "#f3f4f6",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                      }}
+                    >
+                      {m}
+                    </code>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Parallel Slots Panel ───────────────────────────────────
+
+export function ParallelSlotsPanel({
+  slots,
+}: {
+  slots: IntelligenceManifest["parallelSlots"];
+}) {
+  const byParent = useMemo(() => {
+    const map = new Map<string, typeof slots>();
+    for (const slot of slots) {
+      const list = map.get(slot.parentPath) ?? [];
+      list.push(slot);
+      map.set(slot.parentPath, list);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [slots]);
+
+  if (slots.length === 0) {
+    return <EmptyPanel message="No parallel slots found (no @slot directories)." />;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {byParent.map(([parent, parentSlots]) => (
+        <div
+          key={parent}
+          style={{ border: "1px solid var(--c-border)", borderRadius: "8px", overflow: "hidden" }}
+        >
+          <PanelHeader title={parent === "" ? "/ (root layout)" : parent} count={parentSlots.length} />
+          <div>
+            {parentSlots.map((slot) => (
+              <div
+                key={slot.relativePath}
+                style={{
+                  padding: "10px 16px",
+                  borderBottom: "1px solid var(--c-border-subtle)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: "12px",
+                }}
+              >
+                <div>
+                  <code style={{ fontWeight: 600, color: "#7c3aed" }}>@{slot.name}</code>
+                  <span style={{ color: "var(--c-text-muted)", marginLeft: "10px", fontSize: "11px" }}>
+                    {slot.relativePath}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    padding: "2px 8px",
+                    borderRadius: "9999px",
+                    background: slot.hasDefault ? "#dcfce7" : "#fee2e2",
+                    color: slot.hasDefault ? "#166534" : "#991b1b",
+                    fontWeight: 600,
+                  }}
+                >
+                  {slot.hasDefault ? "default ✓" : "no default"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Server Actions Panel ───────────────────────────────────
+
+export function ServerActionsPanel({
+  actions,
+}: {
+  actions: IntelligenceManifest["serverActions"];
+}) {
+  if (actions.length === 0) {
+    return <EmptyPanel message='No server actions found (no "use server" directives).' />;
+  }
+  return (
+    <div style={{ border: "1px solid var(--c-border)", borderRadius: "8px", overflow: "hidden" }}>
+      <PanelHeader title="Server Actions" count={actions.length} />
+      <div style={{ overflowX: "auto", maxHeight: "500px", overflowY: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+          <thead>
+            <tr style={{ background: "var(--c-surface-alt)", position: "sticky", top: 0 }}>
+              <th style={thStyle}>Export</th>
+              <th style={thStyle}>Scope</th>
+              <th style={thStyle}>File</th>
+              <th style={thStyle}>Line</th>
+            </tr>
+          </thead>
+          <tbody>
+            {actions.map((a) => (
+              <tr key={a.canonicalId} style={{ borderBottom: "1px solid var(--c-border-subtle)" }}>
+                <td style={tdStyle}>
+                  <code style={{ fontWeight: 500 }}>
+                    {a.exportName === "__module__" ? <em>(module-level)</em> : a.exportName}
+                  </code>
+                </td>
+                <td style={tdStyle}>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      padding: "1px 6px",
+                      borderRadius: "4px",
+                      background: a.scope === "module" ? "#e0e7ff" : "#fef3c7",
+                      color: a.scope === "module" ? "#4338ca" : "#92400e",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {a.scope}
+                  </span>
+                </td>
+                <td style={tdStyle}>
+                  <code style={{ fontSize: "11px", color: "var(--c-text-muted)" }}>{a.relativePath}</code>
+                </td>
+                <td style={tdStyle}>{a.line}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared sub-components ──────────────────────────────────
+
+function PanelHeader({ title, count }: { title: string; count: number | undefined }) {
+  return (
+    <div
+      style={{
+        padding: "12px 16px",
+        background: "var(--c-surface-alt)",
+        fontWeight: 600,
+        fontSize: "14px",
+        borderBottom: "1px solid var(--c-border)",
+        display: "flex",
+        justifyContent: "space-between",
+      }}
+    >
+      <span>{title}</span>
+      {count !== undefined && <span style={{ color: "var(--c-text-muted)", fontSize: "12px" }}>{count}</span>}
+    </div>
+  );
+}
+
+function EmptyPanel({ message }: { message: string }) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--c-border)",
+        borderRadius: "8px",
+        padding: "32px",
+        textAlign: "center",
+        color: "var(--c-text-faint)",
+        fontSize: "13px",
+      }}
+    >
+      {message}
+    </div>
+  );
+}
+
+// ─── URL State Sync (location.hash) ──────────────────────────
+
+const VALID_VIEWS = [
+  "intelligence",
+  "graph",
+  "usage",
+  "runtime",
+  "diagnostics",
+  "api",
+  "middleware",
+  "slots",
+  "actions",
+] as const;
+type DashboardView = (typeof VALID_VIEWS)[number];
+
+interface UrlState {
+  view: DashboardView;
+  route: string | null;
+  query: string;
+}
+
+function parseHashState(hash: string): UrlState {
+  const clean = hash.startsWith("#") ? hash.slice(1) : hash;
+  const [viewSegment, paramString = ""] = clean.split("?");
+  const params = new URLSearchParams(paramString);
+  const view = (VALID_VIEWS as readonly string[]).includes(viewSegment)
+    ? (viewSegment as DashboardView)
+    : "intelligence";
+  return {
+    view,
+    route: params.get("route"),
+    query: params.get("q") ?? "",
+  };
+}
+
+function serializeHashState(state: UrlState): string {
+  const params = new URLSearchParams();
+  if (state.route) params.set("route", state.route);
+  if (state.query) params.set("q", state.query);
+  const qs = params.toString();
+  return qs ? `${state.view}?${qs}` : state.view;
+}
+
+function useUrlState() {
+  const [state, setState] = useState<UrlState>(() => {
+    if (typeof window === "undefined") {
+      return { view: "intelligence", route: null, query: "" };
+    }
+    return parseHashState(window.location.hash);
+  });
+
+  // Listen for back/forward navigation.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onHashChange = () => setState(parseHashState(window.location.hash));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  // Write back to hash whenever state changes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const next = `#${serializeHashState(state)}`;
+    if (window.location.hash !== next) {
+      // Use replaceState to avoid spamming history on every keystroke.
+      const url = `${window.location.pathname}${window.location.search}${next}`;
+      window.history.replaceState(null, "", url);
+    }
+  }, [state]);
+
+  return [state, setState] as const;
 }
 
 // ─── Main Dashboard ─────────────────────────────────────────
@@ -1015,12 +1812,35 @@ export function IntelligenceDashboard({
     manifestUrl,
     data: inlineManifest,
   });
+  const { tokens, mode } = useTheme();
 
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<"intelligence" | "graph" | "usage" | "runtime">(
-    "intelligence"
-  );
+  const [activeView, setActiveView] = useState<
+    | "intelligence"
+    | "graph"
+    | "usage"
+    | "runtime"
+    | "diagnostics"
+    | "api"
+    | "middleware"
+    | "slots"
+    | "actions"
+  >("intelligence");
   const [routeQuery, setRouteQuery] = useState("");
+
+  // URL state sync — deep-linkable + survives reloads via location.hash.
+  const [urlState, setUrlState] = useUrlState();
+  // Hydrate on mount from URL state.
+  useEffect(() => {
+    setActiveView(urlState.view);
+    if (urlState.route !== null) setSelectedRoute(urlState.route);
+    if (urlState.query) setRouteQuery(urlState.query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Push every state change back to the hash.
+  useEffect(() => {
+    setUrlState({ view: activeView, route: selectedRoute, query: routeQuery });
+  }, [activeView, selectedRoute, routeQuery, setUrlState]);
 
   const filteredRoutes = useMemo(() => {
     if (!manifest) return [];
@@ -1037,9 +1857,22 @@ export function IntelligenceDashboard({
     ? manifest?.routeIntelligence[selectedRoute] ?? null
     : null;
 
+  const diagnosticCounts = useMemo(() => {
+    if (!manifest) return { error: 0, warning: 0, info: 0 };
+    let error = 0;
+    let warning = 0;
+    let info = 0;
+    for (const d of manifest.diagnostics) {
+      if (d.severity === "error") error++;
+      else if (d.severity === "warning") warning++;
+      else if (d.severity === "info") info++;
+    }
+    return { error, warning, info };
+  }, [manifest]);
+
   if (loading) {
     return (
-      <div style={{ padding: "48px", textAlign: "center", color: "#9ca3af" }}>
+      <div style={{ padding: "48px", textAlign: "center", color: "var(--c-text-faint)" }}>
         Loading intelligence data...
       </div>
     );
@@ -1055,7 +1888,7 @@ export function IntelligenceDashboard({
             padding: "6px 14px",
             borderRadius: "6px",
             border: "1px solid #ef4444",
-            background: "#fff",
+            background: "var(--c-surface)",
             color: "#ef4444",
             cursor: "pointer",
             fontSize: "12px",
@@ -1070,62 +1903,123 @@ export function IntelligenceDashboard({
 
   return (
     <div
-      style={{
-        fontFamily: "system-ui, -apple-system, sans-serif",
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        background: "#fff",
-        overflow: "hidden",
-      }}
+      data-theme={mode}
+      style={
+        {
+          fontFamily: "system-ui, -apple-system, sans-serif",
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          background: "var(--c-bg)",
+          color: "var(--c-text)",
+          overflow: "hidden",
+          // CSS custom properties — cascade to every descendant.
+          "--c-bg": tokens.bg,
+          "--c-surface": tokens.surface,
+          "--c-surface-alt": tokens.surfaceAlt,
+          "--c-surface-selected": tokens.surfaceSelected,
+          "--c-border": tokens.border,
+          "--c-border-subtle": tokens.borderSubtle,
+          "--c-text": tokens.text,
+          "--c-text-muted": tokens.textMuted,
+          "--c-text-faint": tokens.textFaint,
+          "--c-accent": tokens.accent,
+          "--c-accent-bg": tokens.accentBg,
+          "--c-code": tokens.code,
+        } as React.CSSProperties & Record<string, string>
+      }
     >
       {/* Top Bar */}
       <div
         style={{
           padding: "12px 20px",
-          borderBottom: "1px solid #e5e7eb",
+          borderBottom: "1px solid var(--c-border)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          background: "#fafafa",
+          background: "var(--c-surface-alt)",
         }}
       >
         <div>
-          <h1 style={{ fontSize: "16px", fontWeight: 700, margin: 0, color: "#111827" }}>
+          <h1 style={{ fontSize: "16px", fontWeight: 700, margin: 0, color: "var(--c-text)" }}>
             Route Intelligence Engine
           </h1>
-          <span style={{ fontSize: "11px", color: "#9ca3af" }}>
+          <span style={{ fontSize: "11px", color: "var(--c-text-faint)" }}>
             {manifest.summary.screens} routes · {manifest.summary.components} components ·{" "}
             {new Date(manifest.generatedAt).toLocaleString()}
           </span>
         </div>
-        <div style={{ display: "flex", gap: "4px" }}>
-          {(["intelligence", "graph", "usage", "runtime"] as const).map((view) => (
-            <button
-              key={view}
-              onClick={() => setActiveView(view)}
-              style={{
-                padding: "4px 12px",
-                borderRadius: "6px",
-                border: "1px solid",
-                borderColor: activeView === view ? "#3b82f6" : "#e5e7eb",
-                background: activeView === view ? "#eff6ff" : "#fff",
-                color: activeView === view ? "#3b82f6" : "#6b7280",
-                cursor: "pointer",
-                fontSize: "12px",
-                fontWeight: activeView === view ? 600 : 400,
-                textTransform: "capitalize",
-              }}
-            >
-              {view}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {/* Diagnostic counter chips */}
+          {(diagnosticCounts.error > 0 ||
+            diagnosticCounts.warning > 0 ||
+            diagnosticCounts.info > 0) && (
+            <div style={{ display: "flex", gap: "4px" }}>
+              {diagnosticCounts.error > 0 && (
+                <DiagnosticChip
+                  severity="error"
+                  count={diagnosticCounts.error}
+                  onClick={() => setActiveView("diagnostics")}
+                />
+              )}
+              {diagnosticCounts.warning > 0 && (
+                <DiagnosticChip
+                  severity="warning"
+                  count={diagnosticCounts.warning}
+                  onClick={() => setActiveView("diagnostics")}
+                />
+              )}
+              {diagnosticCounts.info > 0 && (
+                <DiagnosticChip
+                  severity="info"
+                  count={diagnosticCounts.info}
+                  onClick={() => setActiveView("diagnostics")}
+                />
+              )}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {(
+              [
+                { id: "intelligence", label: "Intelligence" },
+                { id: "graph", label: "Graph" },
+                { id: "usage", label: "Usage" },
+                { id: "runtime", label: "Runtime" },
+                { id: "diagnostics", label: "Diagnostics" },
+                { id: "api", label: `API (${manifest.apiRoutes.length})` },
+                { id: "middleware", label: `Middleware (${manifest.middleware.length})` },
+                { id: "slots", label: `Slots (${manifest.parallelSlots.length})` },
+                { id: "actions", label: `Actions (${manifest.serverActions.length})` },
+              ] as const
+            ).map((view) => (
+              <button
+                key={view.id}
+                type="button"
+                onClick={() => setActiveView(view.id)}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid",
+                  borderColor: activeView === view.id ? "#3b82f6" : "#e5e7eb",
+                  background: activeView === view.id ? "#eff6ff" : "#fff",
+                  color: activeView === view.id ? "#3b82f6" : "#6b7280",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: activeView === view.id ? 600 : 400,
+                }}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Summary Strip */}
-      {activeView !== "graph" && (
-        <div style={{ padding: "12px 20px", borderBottom: "1px solid #e5e7eb", flexShrink: 0 }}>
+      {(activeView === "intelligence" ||
+        activeView === "usage" ||
+        activeView === "runtime") && (
+        <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--c-border)", flexShrink: 0 }}>
           <SummaryGrid summary={manifest.summary} />
         </div>
       )}
@@ -1141,8 +2035,8 @@ export function IntelligenceDashboard({
           }}
         >
           {/* LEFT: Route Tree */}
-          <div style={{ borderRight: "1px solid #e5e7eb", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <div style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
+          <div style={{ borderRight: "1px solid var(--c-border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--c-border-subtle)" }}>
               <input
                 value={routeQuery}
                 onChange={(event) => setRouteQuery(event.target.value)}
@@ -1151,7 +2045,7 @@ export function IntelligenceDashboard({
                   width: "100%",
                   padding: "6px 8px",
                   borderRadius: "6px",
-                  border: "1px solid #d1d5db",
+                  border: "1px solid var(--c-border)",
                   fontSize: "12px",
                 }}
               />
@@ -1175,7 +2069,7 @@ export function IntelligenceDashboard({
           </div>
 
           {/* RIGHT: Dependency Hierarchy */}
-          <div style={{ borderLeft: "1px solid #e5e7eb", overflow: "hidden" }}>
+          <div style={{ borderLeft: "1px solid var(--c-border)", overflow: "hidden" }}>
             <DependencyHierarchy
               intelligence={selectedIntel}
               allComponents={manifest.components}
@@ -1188,7 +2082,7 @@ export function IntelligenceDashboard({
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
             <Suspense
               fallback={
-                <div style={{ padding: "48px", textAlign: "center", color: "#9ca3af" }}>
+                <div style={{ padding: "48px", textAlign: "center", color: "var(--c-text-faint)" }}>
                   Loading graph...
                 </div>
               }
@@ -1205,11 +2099,86 @@ export function IntelligenceDashboard({
         <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
           <ComponentUsageTable componentUsage={manifest.componentUsage} />
         </div>
-      ) : (
+      ) : activeView === "runtime" ? (
         <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
           <RuntimeTree runtime={manifest.runtime} components={manifest.components} />
         </div>
+      ) : activeView === "diagnostics" ? (
+        <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
+          <DiagnosticsPanel
+            diagnostics={manifest.diagnostics}
+            onJumpToRoute={(node) => {
+              // If the node is a route path, jump to it; otherwise no-op.
+              if (node.startsWith("/") && manifest.routeIntelligence[node]) {
+                setSelectedRoute(node);
+                setActiveView("intelligence");
+              }
+            }}
+          />
+        </div>
+      ) : activeView === "api" ? (
+        <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
+          <ApiRoutesPanel apiRoutes={manifest.apiRoutes} />
+        </div>
+      ) : activeView === "middleware" ? (
+        <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
+          <MiddlewarePanel middleware={manifest.middleware} />
+        </div>
+      ) : activeView === "slots" ? (
+        <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
+          <ParallelSlotsPanel slots={manifest.parallelSlots} />
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflow: "auto", padding: "20px" }}>
+          <ServerActionsPanel actions={manifest.serverActions} />
+        </div>
       )}
+
+      {/* Cmd+K command palette — global hotkey, lazy-loaded. */}
+      <Suspense fallback={null}>
+        <LazyCommandPalette
+          manifest={manifest}
+          onSelectRoute={setSelectedRoute}
+          onSelectView={setActiveView}
+        />
+      </Suspense>
     </div>
+  );
+}
+
+// ─── Diagnostic Chip ────────────────────────────────────────
+
+function DiagnosticChip({
+  severity,
+  count,
+  onClick,
+}: {
+  severity: "error" | "warning" | "info";
+  count: number;
+  onClick: () => void;
+}) {
+  const sev = SEVERITY_STYLES[severity]!;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${count} ${severity} diagnostic${count === 1 ? "" : "s"} — click to view`}
+      style={{
+        display: "flex",
+        gap: "4px",
+        alignItems: "center",
+        padding: "3px 8px",
+        borderRadius: "9999px",
+        border: `1px solid ${sev.border}`,
+        background: sev.bg,
+        color: sev.text,
+        cursor: "pointer",
+        fontSize: "11px",
+        fontWeight: 700,
+      }}
+    >
+      <span>{sev.icon}</span>
+      <span>{count}</span>
+    </button>
   );
 }

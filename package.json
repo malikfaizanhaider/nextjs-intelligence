@@ -1,6 +1,6 @@
 {
   "name": "@i2c/intelligence",
-  "version": "0.0.5",
+  "version": "0.1.2",
   "description": "Unified Next.js intelligence toolkit: compiler, core analyzer, runtime hooks, dashboard, and shared types.",
   "type": "module",
   "bin": {
@@ -67,7 +67,8 @@
     "@types/node": "25.9.1",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "4.1.8"
   },
   "sideEffects": false,
   "license": "MIT",

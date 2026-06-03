@@ -1,4 +1,15 @@
-import { SyntaxKind, type SourceFile, type Project } from "ts-morph";
+import {
+  SyntaxKind,
+  type SourceFile,
+  type Project,
+  type Node,
+  type CallExpression,
+  type PropertyAccessExpression,
+  type ElementAccessExpression,
+  type ObjectBindingPattern,
+  type VariableDeclaration,
+  type ParameterDeclaration,
+} from "ts-morph";
 import { relative } from "node:path";
 import type { SearchParamUsage } from "../../../intelligence-types/src/index";
 
@@ -13,12 +24,20 @@ export interface SearchParamsResult {
 }
 
 /**
- * Analyzes source files for searchParams, useSearchParams(), and dynamic params usage.
- * Detects:
- *   - searchParams.page, searchParams.tab, etc. (server component props)
- *   - const sp = useSearchParams(); sp.get("page")
- *   - params.id, params.slug (dynamic route params)
- *   - useParams() hook usage
+ * AST-based analyzer for searchParams, useSearchParams(), and dynamic params
+ * usage. Replaces the original regex implementation so destructuring,
+ * conditional access, optional chaining, and identifier shadowing are all
+ * tracked correctly.
+ *
+ * Detection pipeline:
+ *  1. Walk every function-like declaration. Bind the parameter name and any
+ *     destructured property names for `searchParams` and `params`.
+ *  2. Walk variable declarations that bind the result of `useSearchParams()`
+ *     or `useParams()`. Capture identifier bindings and object-binding
+ *     destructuring.
+ *  3. For each bound identifier (file-level), scan the file for
+ *     `PropertyAccessExpression`, `ElementAccessExpression`, and
+ *     `.get|.getAll|.has(...)` calls.
  */
 export class SearchParamsAnalyzer {
   private project: Project;
@@ -29,9 +48,6 @@ export class SearchParamsAnalyzer {
     this.projectRoot = projectRoot;
   }
 
-  /**
-   * Analyze a set of files for search params and dynamic params usage.
-   */
   analyzeFiles(filePaths: string[]): SearchParamsResult {
     const searchParams = new Map<string, SearchParamUsage>();
     const dynamicParams = new Set<string>();
@@ -43,179 +59,315 @@ export class SearchParamsAnalyzer {
       const relPath = relative(this.projectRoot, filePath).replace(/\\/g, "/");
       const componentName = this.inferComponentName(relPath);
 
-      this.detectServerSearchParams(sourceFile, componentName, searchParams);
-      this.detectUseSearchParams(sourceFile, componentName, searchParams);
-      this.detectDynamicParams(sourceFile, componentName, dynamicParams);
-      this.detectUseParams(sourceFile, componentName, dynamicParams);
+      this.analyzeSourceFile(sourceFile, componentName, searchParams, dynamicParams);
     }
 
     return { searchParams, dynamicParams: Array.from(dynamicParams) };
   }
 
-  /**
-   * Detect searchParams.xxx access in server component function signatures.
-   * Pattern: function Page({ searchParams }: { searchParams: ... })
-   * Then: searchParams.page, searchParams.tab, searchParams["filter"]
-   */
-  private detectServerSearchParams(
+  private analyzeSourceFile(
     sourceFile: SourceFile,
     componentName: string,
-    result: Map<string, SearchParamUsage>
+    searchParams: Map<string, SearchParamUsage>,
+    dynamicParams: Set<string>
   ): void {
-    const fullText = sourceFile.getFullText();
+    // ── Step 1: collect bindings ────────────────────────────────────────────
+    const serverSearchParamsNames = new Set<string>();
+    const paramsNames = new Set<string>();
+    const useSearchParamsNames = new Set<string>();
 
-    // Match searchParams.xxx property access
-    const dotAccessRegex = /searchParams\s*\.\s*([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = dotAccessRegex.exec(fullText)) !== null) {
-      const param = match[1]!;
-      if (this.isValidParamName(param)) {
-        this.addSearchParam(result, param, componentName, "searchParams");
+    // 1a — function parameter destructuring
+    for (const fn of this.getFunctionLikes(sourceFile)) {
+      for (const param of fn.getParameters()) {
+        this.collectFromParameter(
+          param,
+          serverSearchParamsNames,
+          paramsNames,
+          searchParams,
+          dynamicParams,
+          componentName
+        );
       }
     }
 
-    // Match searchParams["xxx"] or searchParams['xxx'] bracket access
-    const bracketAccessRegex = /searchParams\s*\[\s*["']([^"']+)["']\s*\]/g;
-    while ((match = bracketAccessRegex.exec(fullText)) !== null) {
-      const param = match[1]!;
-      this.addSearchParam(result, param, componentName, "searchParams");
+    // 1b — variable declarations bound to useSearchParams() / useParams()
+    for (const decl of sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+      this.collectFromVariableDeclaration(
+        decl,
+        useSearchParamsNames,
+        paramsNames,
+        searchParams,
+        dynamicParams,
+        componentName
+      );
     }
 
-    // Match destructuring: const { page, tab } = searchParams
-    const destructureRegex = /(?:const|let|var)\s*\{([^}]+)\}\s*=\s*(?:await\s+)?searchParams/g;
-    while ((match = destructureRegex.exec(fullText)) !== null) {
-      const destructured = match[1]!;
-      const params = destructured.split(",").map((p) => p.trim().split(":")[0]!.split("=")[0]!.trim());
-      for (const param of params) {
-        if (param && this.isValidParamName(param)) {
-          this.addSearchParam(result, param, componentName, "searchParams");
-        }
-      }
+    // ── Step 2: scan accesses on bound identifiers ──────────────────────────
+    this.scanAccesses(
+      sourceFile,
+      serverSearchParamsNames,
+      useSearchParamsNames,
+      paramsNames,
+      searchParams,
+      dynamicParams,
+      componentName
+    );
+  }
+
+  /**
+   * Yields every function-like declaration (function decl, arrow, function
+   * expression, class method).
+   */
+  private *getFunctionLikes(sourceFile: SourceFile): Generator<{
+    getParameters: () => ParameterDeclaration[];
+  }> {
+    for (const fn of sourceFile.getFunctions()) yield fn;
+    for (const arrow of sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction)) yield arrow;
+    for (const expr of sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression)) yield expr;
+    for (const cls of sourceFile.getClasses()) {
+      for (const method of cls.getMethods()) yield method;
     }
   }
 
   /**
-   * Detect useSearchParams() hook usage.
-   * Pattern: const searchParams = useSearchParams()
-   * Then: searchParams.get("page"), searchParams.getAll("tags")
+   * Inspect a function parameter. Conventional Next.js page/layout shapes:
+   *   - `function Page({ searchParams, params })`
+   *   - `function Page({ searchParams: sp })`
+   *   - `function Page({ searchParams: { page }, params: { id } })`
    */
-  private detectUseSearchParams(
-    sourceFile: SourceFile,
+  private collectFromParameter(
+    param: ParameterDeclaration,
+    serverSearchParamsNames: Set<string>,
+    paramsNames: Set<string>,
+    searchParams: Map<string, SearchParamUsage>,
+    dynamicParams: Set<string>,
+    componentName: string
+  ): void {
+    const nameNode = param.getNameNode();
+    if (nameNode.getKind() !== SyntaxKind.ObjectBindingPattern) return;
+    const pattern = nameNode as ObjectBindingPattern;
+    for (const element of pattern.getElements()) {
+      const propertyName = element.getPropertyNameNode()?.getText() ?? element.getName();
+      if (propertyName === "searchParams") {
+        this.handleDestructuredKey(
+          element,
+          serverSearchParamsNames,
+          searchParams,
+          dynamicParams,
+          componentName,
+          "searchParams"
+        );
+      } else if (propertyName === "params") {
+        this.handleDestructuredKey(
+          element,
+          paramsNames,
+          searchParams,
+          dynamicParams,
+          componentName,
+          "params"
+        );
+      }
+    }
+  }
+
+  private handleDestructuredKey(
+    element: import("ts-morph").BindingElement,
+    boundNames: Set<string>,
+    searchParams: Map<string, SearchParamUsage>,
+    dynamicParams: Set<string>,
     componentName: string,
-    result: Map<string, SearchParamUsage>
+    kind: "searchParams" | "params"
   ): void {
-    const fullText = sourceFile.getFullText();
-
-    // Check if useSearchParams is used
-    if (!fullText.includes("useSearchParams")) return;
-
-    // Find the variable name assigned from useSearchParams()
-    const assignmentRegex = /(?:const|let|var)\s+(\w+)\s*=\s*useSearchParams\s*\(\s*\)/g;
-    let match: RegExpExecArray | null;
-    const varNames: string[] = [];
-
-    while ((match = assignmentRegex.exec(fullText)) !== null) {
-      varNames.push(match[1]!);
+    const inner = element.getNameNode();
+    if (inner.getKind() === SyntaxKind.Identifier) {
+      boundNames.add(inner.getText());
+      return;
     }
-
-    // For each variable, find .get("xxx"), .getAll("xxx"), .has("xxx")
-    for (const varName of varNames) {
-      const getRegex = new RegExp(
-        `${this.escapeRegex(varName)}\\.(?:get|getAll|has)\\s*\\(\\s*["']([^"']+)["']\\s*\\)`,
-        "g"
-      );
-      while ((match = getRegex.exec(fullText)) !== null) {
-        this.addSearchParam(result, match[1]!, componentName, "useSearchParams");
-      }
-    }
-
-    // Also check for URLSearchParams iteration patterns
-    // searchParams.entries(), searchParams.keys(), etc. — record as generic usage
-  }
-
-  /**
-   * Detect dynamic route params usage.
-   * Pattern: params.id, params.slug — from function props.
-   */
-  private detectDynamicParams(
-    sourceFile: SourceFile,
-    _componentName: string,
-    result: Set<string>
-  ): void {
-    const fullText = sourceFile.getFullText();
-
-    // Match params.xxx property access
-    const dotAccessRegex = /params\s*\.\s*([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = dotAccessRegex.exec(fullText)) !== null) {
-      const param = match[1]!;
-      if (this.isValidParamName(param)) {
-        result.add(param);
-      }
-    }
-
-    // Match destructuring: const { id, slug } = params
-    const destructureRegex = /(?:const|let|var)\s*\{([^}]+)\}\s*=\s*(?:await\s+)?params/g;
-    while ((match = destructureRegex.exec(fullText)) !== null) {
-      const destructured = match[1]!;
-      const params = destructured.split(",").map((p) => p.trim().split(":")[0]!.split("=")[0]!.trim());
-      for (const param of params) {
-        if (param && this.isValidParamName(param)) {
-          result.add(param);
+    if (inner.getKind() === SyntaxKind.ObjectBindingPattern) {
+      const nested = inner as ObjectBindingPattern;
+      for (const sub of nested.getElements()) {
+        const subProp = sub.getPropertyNameNode()?.getText() ?? sub.getName();
+        if (!this.isValidParamName(subProp)) continue;
+        if (kind === "searchParams") {
+          this.addSearchParam(searchParams, subProp, componentName, "searchParams");
+        } else {
+          dynamicParams.add(subProp);
         }
       }
     }
   }
 
-  /**
-   * Detect useParams() hook usage.
-   */
-  private detectUseParams(
-    sourceFile: SourceFile,
-    _componentName: string,
-    result: Set<string>
+  private collectFromVariableDeclaration(
+    decl: VariableDeclaration,
+    useSearchParamsNames: Set<string>,
+    paramsNames: Set<string>,
+    searchParams: Map<string, SearchParamUsage>,
+    dynamicParams: Set<string>,
+    componentName: string
   ): void {
-    const fullText = sourceFile.getFullText();
-    if (!fullText.includes("useParams")) return;
+    const initializer = decl.getInitializer();
+    if (!initializer) return;
 
-    // Find variable assigned from useParams()
-    const assignmentRegex = /(?:const|let|var)\s+(\w+)\s*=\s*useParams\s*\(\s*\)/g;
-    let match: RegExpExecArray | null;
-    const varNames: string[] = [];
+    // Unwrap `await ...` for `const x = await searchParams` style.
+    const innerInit =
+      initializer.getKind() === SyntaxKind.AwaitExpression
+        ? (initializer as unknown as { getExpression: () => Node }).getExpression()
+        : initializer;
 
-    while ((match = assignmentRegex.exec(fullText)) !== null) {
-      varNames.push(match[1]!);
+    // Pattern A: destructuring from `searchParams` or `params` identifier
+    // e.g. `const { page } = searchParams` (after a server prop binding).
+    if (innerInit.getKind() === SyntaxKind.Identifier) {
+      const sourceName = innerInit.getText();
+      const nameNode = decl.getNameNode();
+      if (nameNode.getKind() !== SyntaxKind.ObjectBindingPattern) return;
+      const pattern = nameNode as ObjectBindingPattern;
+      // Best-effort: if the source identifier is literally `searchParams` or
+      // `params`, treat the destructured keys as such. (Bindings set up by
+      // function parameter walk above already covered scoped names.)
+      const isSP = sourceName === "searchParams";
+      const isPP = sourceName === "params";
+      if (!isSP && !isPP) return;
+      for (const element of pattern.getElements()) {
+        const propName = element.getPropertyNameNode()?.getText() ?? element.getName();
+        if (!this.isValidParamName(propName)) continue;
+        if (isSP) this.addSearchParam(searchParams, propName, componentName, "searchParams");
+        else dynamicParams.add(propName);
+      }
+      return;
     }
 
-    // Find property access on those variables
-    for (const varName of varNames) {
-      const accessRegex = new RegExp(
-        `${this.escapeRegex(varName)}\\.([a-zA-Z_$][a-zA-Z0-9_$]*)`,
-        "g"
-      );
-      while ((match = accessRegex.exec(fullText)) !== null) {
-        const param = match[1]!;
-        if (this.isValidParamName(param)) {
-          result.add(param);
-        }
-      }
+    // Pattern B: call expression — useSearchParams() / useParams()
+    if (innerInit.getKind() !== SyntaxKind.CallExpression) return;
+    const callee = (innerInit as CallExpression).getExpression().getText();
+    let kind: "useSearchParams" | "useParams" | null = null;
+    if (callee === "useSearchParams" || callee.endsWith(".useSearchParams")) {
+      kind = "useSearchParams";
+    } else if (callee === "useParams" || callee.endsWith(".useParams")) {
+      kind = "useParams";
+    }
+    if (!kind) return;
 
-      // Also destructured: const { id } = useParams()
-      const destructureRegex = new RegExp(
-        `(?:const|let|var)\\s*\\{([^}]+)\\}\\s*=\\s*useParams\\s*\\(`,
-        "g"
-      );
-      while ((match = destructureRegex.exec(fullText)) !== null) {
-        const destructured = match[1]!;
-        const params = destructured.split(",").map((p) => p.trim().split(":")[0]!.split("=")[0]!.trim());
-        for (const param of params) {
-          if (param && this.isValidParamName(param)) {
-            result.add(param);
-          }
+    const nameNode = decl.getNameNode();
+    if (nameNode.getKind() === SyntaxKind.Identifier) {
+      if (kind === "useSearchParams") useSearchParamsNames.add(nameNode.getText());
+      else paramsNames.add(nameNode.getText());
+      return;
+    }
+    if (nameNode.getKind() === SyntaxKind.ObjectBindingPattern) {
+      const pattern = nameNode as ObjectBindingPattern;
+      for (const element of pattern.getElements()) {
+        const propName = element.getPropertyNameNode()?.getText() ?? element.getName();
+        if (!this.isValidParamName(propName)) continue;
+        if (kind === "useSearchParams") {
+          this.addSearchParam(searchParams, propName, componentName, "useSearchParams");
+        } else {
+          dynamicParams.add(propName);
         }
       }
+    }
+  }
+
+  /**
+   * Scan the file for property/element access and `.get(...)` calls on the
+   * bound identifiers. The AST walk visits every descendant regardless of
+   * surrounding syntax (ternaries, `?.`, conditionals, etc.).
+   */
+  private scanAccesses(
+    sourceFile: SourceFile,
+    serverSearchParamsNames: Set<string>,
+    useSearchParamsNames: Set<string>,
+    paramsNames: Set<string>,
+    searchParams: Map<string, SearchParamUsage>,
+    dynamicParams: Set<string>,
+    componentName: string
+  ): void {
+    const allSearchParamNames = new Set<string>([
+      ...serverSearchParamsNames,
+      ...useSearchParamsNames,
+    ]);
+
+    for (const pa of sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+      this.handlePropertyAccess(
+        pa,
+        serverSearchParamsNames,
+        useSearchParamsNames,
+        paramsNames,
+        searchParams,
+        dynamicParams,
+        componentName
+      );
+    }
+
+    for (const ea of sourceFile.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
+      this.handleElementAccess(
+        ea,
+        allSearchParamNames,
+        paramsNames,
+        searchParams,
+        dynamicParams,
+        componentName
+      );
+    }
+  }
+
+  private handlePropertyAccess(
+    pa: PropertyAccessExpression,
+    serverSearchParamsNames: Set<string>,
+    useSearchParamsNames: Set<string>,
+    paramsNames: Set<string>,
+    searchParams: Map<string, SearchParamUsage>,
+    dynamicParams: Set<string>,
+    componentName: string
+  ): void {
+    const objectName = pa.getExpression().getText();
+    const property = pa.getName();
+
+    if (serverSearchParamsNames.has(objectName)) {
+      if (this.isValidParamName(property)) {
+        this.addSearchParam(searchParams, property, componentName, "searchParams");
+      }
+      return;
+    }
+
+    if (useSearchParamsNames.has(objectName)) {
+      // Capture only `.get("x")`, `.getAll("x")`, `.has("x")` call sites.
+      if (property !== "get" && property !== "getAll" && property !== "has") return;
+      const parent = pa.getParent();
+      if (!parent || parent.getKind() !== SyntaxKind.CallExpression) return;
+      const args = (parent as CallExpression).getArguments();
+      if (args.length === 0) return;
+      const firstArg = args[0]!;
+      if (firstArg.getKind() !== SyntaxKind.StringLiteral) return;
+      const key = (firstArg as unknown as { getLiteralText: () => string }).getLiteralText();
+      if (this.isValidParamName(key)) {
+        this.addSearchParam(searchParams, key, componentName, "useSearchParams");
+      }
+      return;
+    }
+
+    if (paramsNames.has(objectName) && this.isValidParamName(property)) {
+      dynamicParams.add(property);
+    }
+  }
+
+  private handleElementAccess(
+    ea: ElementAccessExpression,
+    allSearchParamNames: Set<string>,
+    paramsNames: Set<string>,
+    searchParams: Map<string, SearchParamUsage>,
+    dynamicParams: Set<string>,
+    componentName: string
+  ): void {
+    const objectName = ea.getExpression().getText();
+    const arg = ea.getArgumentExpression();
+    if (!arg || arg.getKind() !== SyntaxKind.StringLiteral) return;
+    const key = (arg as unknown as { getLiteralText: () => string }).getLiteralText();
+    if (!this.isValidParamName(key)) return;
+
+    if (allSearchParamNames.has(objectName)) {
+      this.addSearchParam(searchParams, key, componentName, "searchParams");
+    } else if (paramsNames.has(objectName)) {
+      dynamicParams.add(key);
     }
   }
 
@@ -245,11 +397,7 @@ export class SearchParamsAnalyzer {
         existing.usedIn.push(componentName);
       }
     } else {
-      result.set(param, {
-        param,
-        usedIn: [componentName],
-        accessPattern,
-      });
+      result.set(param, { param, usedIn: [componentName], accessPattern });
     }
   }
 
@@ -272,15 +420,17 @@ export class SearchParamsAnalyzer {
   }
 
   private isValidParamName(name: string): boolean {
-    // Exclude common JS properties and methods
+    // Identifier shape + exclude JS object prototype names that would create
+    // noise. URLSearchParams-specific method names (get/getAll/has/sort/...)
+    // are filtered separately, only on `useSearchParams()` results, so they
+    // do not over-filter legitimate user-defined searchParam keys when a
+    // user destructures `{ sort }` from a server `searchParams` prop.
     const excluded = new Set([
       "then", "catch", "finally", "toString", "valueOf", "constructor",
       "prototype", "length", "name", "apply", "call", "bind",
     ]);
     return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) && !excluded.has(name);
   }
-
-  private escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
 }
+
+export type { Node };

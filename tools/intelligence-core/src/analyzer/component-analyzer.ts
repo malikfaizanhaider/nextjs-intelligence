@@ -19,11 +19,21 @@ import { SymbolResolver } from "./symbol-resolver";
  * Uses TypeScript symbol resolution for canonical identity assignment.
  * Does NOT rely on JSX string matching — resolves actual compiler symbols.
  */
+export interface ParseFailure {
+  /** Absolute path of the file that failed to parse */
+  filePath: string;
+  /** Reason reported by ts-morph / the TypeScript loader */
+  reason: string;
+}
+
 export class ComponentAnalyzer {
   private project: Project;
   private config: AnalyzerConfig;
   private componentUsageMap = new Map<string, Set<string>>();
   private symbolResolver: SymbolResolver | null = null;
+  private parseFailures: ParseFailure[] = [];
+  private filesAttempted = 0;
+  private filesAdded = 0;
 
   constructor(config: AnalyzerConfig) {
     this.config = config;
@@ -39,6 +49,21 @@ export class ComponentAnalyzer {
   /**
    * Run the full analysis pipeline.
    */
+  /** Files that failed to parse during {@link analyze}. */
+  getParseFailures(): readonly ParseFailure[] {
+    return this.parseFailures;
+  }
+
+  /** Total files attempted to be added to the ts-morph project. */
+  getFilesAttemptedCount(): number {
+    return this.filesAttempted;
+  }
+
+  /** Files successfully added to the ts-morph project. */
+  getFilesAddedCount(): number {
+    return this.filesAdded;
+  }
+
   async analyze(): Promise<{
     components: ComponentMeta[];
     importEdges: GraphEdge[];
@@ -98,10 +123,13 @@ export class ComponentAnalyzer {
    */
   private addFilesToProject(filePaths: string[]): void {
     for (const filePath of filePaths) {
+      this.filesAttempted++;
       try {
         this.project.addSourceFileAtPath(filePath);
-      } catch {
-        // Skip files that can't be parsed
+        this.filesAdded++;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.parseFailures.push({ filePath, reason });
       }
     }
   }

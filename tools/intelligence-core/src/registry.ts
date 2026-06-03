@@ -12,6 +12,7 @@ import type {
   SeparatedGraphs,
   Diagnostic,
 } from "../../intelligence-types/src/index";
+import { MANIFEST_SCHEMA_VERSION } from "../../intelligence-types/src/index";
 
 /**
  * Central singleton registry that aggregates build-time AST metadata
@@ -230,6 +231,12 @@ export class IntelligenceRegistry {
       serverComponents: components.filter((c) => c.rendering === "server").length,
       avgComplexity,
       maxComplexity,
+      // The pipeline patches these from Phase-2 detector results; the registry
+      // alone cannot know about API routes, middleware, slots, or actions.
+      apiRoutes: 0,
+      middlewareCount: 0,
+      parallelSlots: 0,
+      serverActions: 0,
     };
   }
 
@@ -269,6 +276,7 @@ export class IntelligenceRegistry {
     };
 
     return {
+      schemaVersion: MANIFEST_SCHEMA_VERSION,
       generatedAt: new Date().toISOString(),
       projectRoot: this.projectRoot,
       summary: this.computeSummary(),
@@ -280,6 +288,10 @@ export class IntelligenceRegistry {
       graphs: emptySeparatedGraphs,
       runtime: runtimeRecord,
       diagnostics: [],
+      apiRoutes: [],
+      middleware: [],
+      parallelSlots: [],
+      serverActions: [],
     };
   }
 

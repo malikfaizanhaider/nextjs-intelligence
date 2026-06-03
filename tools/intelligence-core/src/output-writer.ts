@@ -3,6 +3,7 @@ import { resolve, dirname } from "node:path";
 import type {
   IntelligenceManifest,
   DependencyGraph,
+  DerivedMetrics,
   RouteIntelligence,
   RuntimeMeta,
   SeparatedGraphs,
@@ -24,14 +25,18 @@ export class OutputWriter {
    */
   async writeAll(manifest: IntelligenceManifest): Promise<void> {
     await this.ensureDir(this.outputDir);
-    await Promise.all([
+    const tasks: Promise<void>[] = [
       this.writeManifest(manifest),
       this.writeGraph(manifest.graph),
       this.writeSeparatedGraphs(manifest.graphs),
       this.writeRoutes(manifest.routeIntelligence),
       this.writeRuntime(manifest.runtime),
       this.writeDiagnostics(manifest.diagnostics),
-    ]);
+    ];
+    if (manifest.derived) {
+      tasks.push(this.writeDerived(manifest.derived));
+    }
+    await Promise.all(tasks);
   }
 
   /**
@@ -86,6 +91,14 @@ export class OutputWriter {
   async writeDiagnostics(diagnostics: Diagnostic[]): Promise<void> {
     const filePath = resolve(this.outputDir, "diagnostics.json");
     await this.writeJson(filePath, diagnostics);
+  }
+
+  /**
+   * Write derived.json (post-analysis metrics).
+   */
+  async writeDerived(derived: DerivedMetrics): Promise<void> {
+    const filePath = resolve(this.outputDir, "derived.json");
+    await this.writeJson(filePath, derived);
   }
 
   /**
