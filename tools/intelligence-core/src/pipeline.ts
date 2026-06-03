@@ -27,7 +27,7 @@ import { OutputWriter } from "./output-writer";
 import { IncrementalCache } from "./cache";
 import { consoleLogger, silentLogger, type Logger } from "./logger";
 import { loadConfigFile, mergeConfigs } from "./config-loader";
-import { deriveMetrics, loadBundleStats } from "./derived-metrics";
+import { deriveMetrics, deriveBundleDiagnostics, loadBundleStats } from "./derived-metrics";
 
 const DEFAULT_CONFIG: AnalyzerConfig = {
   projectRoot: process.cwd(),
@@ -491,8 +491,35 @@ export async function runIntelligencePipelineInternal(
   });
   diagnosticsStore?.addMany(verificationDiagnostics);
 
+  // Load bundle stats up-front so budget diagnostics participate in the same
+  // diagnostics array (and counts) as verification output. Best-effort:
+  // missing `.next/app-build-manifest.json` is fine, but an explicit
+  // `bundleStatsPath` that can't be read is fatal.
+  let bundleStats: Awaited<ReturnType<typeof loadBundleStats>> = null;
+  try {
+    bundleStats = await loadBundleStats(config.projectRoot, config.bundleStatsPath);
+  } catch (err) {
+    logger.warn(
+      `Bundle stats load failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  // Bundle-budget diagnostics are opt-in: emitted only when a budget is
+  // configured and bundle stats are available. Keeps default runs unchanged.
+  const bundleDiagnostics: Diagnostic[] =
+    bundleStats && config.bundleBudget
+      ? deriveBundleDiagnostics(bundleStats, config.bundleBudget)
+      : [];
+  if (bundleDiagnostics.length > 0) {
+    diagnosticsStore?.addMany(bundleDiagnostics);
+  }
+
   // Combined diagnostics include parse-error diagnostics emitted in Phase 1
-  const diagnostics: Diagnostic[] = [...parseDiagnostics, ...verificationDiagnostics];
+  const diagnostics: Diagnostic[] = [
+    ...parseDiagnostics,
+    ...verificationDiagnostics,
+    ...bundleDiagnostics,
+  ];
 
   const errors = diagnostics.filter((d) => d.severity === "error");
   const warnings = diagnostics.filter((d) => d.severity === "warning");
@@ -532,17 +559,9 @@ export async function runIntelligencePipelineInternal(
   manifest.summary.parallelSlots = parallelSlots.length;
   manifest.summary.serverActions = serverActions.length;
 
-  // Compute derived metrics. Best-effort bundle stats merge — missing
-  // `.next/app-build-manifest.json` is fine, but an explicit
-  // `bundleStatsPath` that can't be read is fatal.
-  let bundleStats: Awaited<ReturnType<typeof loadBundleStats>> = null;
-  try {
-    bundleStats = await loadBundleStats(config.projectRoot, config.bundleStatsPath);
-  } catch (err) {
-    logger.warn(
-      `Bundle stats load failed: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
+  // Compute derived metrics. Bundle stats were loaded earlier (so budget
+  // diagnostics could join the diagnostics array); reuse them here for the
+  // per-route `bundle` join and aggregate `derived.bundle` block.
   manifest.derived = deriveMetrics(manifest, bundleStats ?? undefined);
   if (bundleStats) {
     logger.info(

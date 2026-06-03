@@ -86,6 +86,7 @@ export type DiagnosticCategory =
   | "circular-ownership"
   | "duplicate-composite-registration"
   | "low-confidence-composite"
+  | "oversized-route"
   | "parse-error";
 
 /**
@@ -630,6 +631,21 @@ export interface BundleStats {
   routes: Record<string, RouteBundleStats>;
 }
 
+/**
+ * Per-route bundle budgets. All thresholds are uncompressed bytes and every
+ * field is optional — only the thresholds that are set are enforced. When no
+ * budget is configured the pipeline emits no bundle diagnostics, so default
+ * runs are unchanged.
+ */
+export interface BundleBudget {
+  /** Maximum allowed route JavaScript bytes before an `oversized-route` warning. */
+  maxRouteJsBytes?: number;
+  /** Maximum allowed route CSS bytes before an `oversized-route` info diagnostic. */
+  maxRouteCssBytes?: number;
+  /** Maximum allowed first-load JS bytes (Next.js terminology) before a warning. */
+  maxFirstLoadJsBytes?: number;
+}
+
 // ─── Derived Metrics ───────────────────────────────────────
 
 /** Distribution of edge/composite confidence scores. */
@@ -816,6 +832,13 @@ export interface AnalyzerConfig {
    * silently skipped.
    */
   bundleStatsPath?: string;
+  /**
+   * Optional per-route bundle budgets. When set (and bundle stats are
+   * available), the pipeline emits `oversized-route` diagnostics for routes
+   * exceeding the configured thresholds. Omitting this leaves default runs
+   * diagnostic-free.
+   */
+  bundleBudget?: BundleBudget;
 }
 
 // ─── Built-in Hook Exclusions ──────────────────────────────

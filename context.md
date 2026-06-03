@@ -1,9 +1,17 @@
 # @i2c/intelligence — AI Context Document
 
-> **Generated**: 2026-05-22  
-> **Version**: 0.0.5  
-> **Package**: `@i2c/intelligence`  
-> **License**: MIT (Faizan Haider)
+> **Generated**: 2026-06-03
+> **Version**: 0.1.2
+> **Package**: `@i2c/intelligence`
+> **Manifest Schema Version**: `1.1.0`
+> **Derived Metrics Version**: `1.0.0`
+> **License**: MIT
+>
+> This document is generated **only from source code** under `tools/`. Where the
+> source does not provide evidence for a claim, the section is marked
+> **"Not enough evidence found in source code."** Implementation is the source of
+> truth; this supersedes any older `context.md` (the previous version documented
+> `0.0.5`).
 
 ---
 
@@ -11,79 +19,101 @@
 
 ### What It Does
 
-`@i2c/intelligence` is a **static analysis + runtime instrumentation toolkit** for Next.js applications. It scans a Next.js project's source code, extracts a complete dependency graph of routes, components, hooks, and utilities, then outputs a structured JSON manifest describing the entire application architecture.
+`@i2c/intelligence` is a **static analysis + runtime instrumentation toolkit** for
+Next.js App Router applications. It parses a project's TypeScript/TSX source using
+the TypeScript compiler (via `ts-morph`), reconstructs the full architecture —
+routes, components, hooks, utilities, providers, server actions, API routes,
+middleware, parallel slots — and emits a set of deterministic JSON artifacts
+describing the application. It additionally provides build-time source
+transformation, React runtime tracking hooks, and a React dashboard for
+visualization.
 
-### Core Business Purpose
+### Core Purpose
 
-Provides **architectural intelligence** for large Next.js codebases — enabling teams and AI agents to understand which components live on which routes, how deeply nested the dependency trees are, which components are reused across routes, and what search/dynamic params each route consumes.
+Provide **architectural intelligence** for large Next.js codebases so that
+engineering teams and AI agents can reason about:
 
-### Main Workflows
+- which components belong to which route dependency trees,
+- how components are reused across routes/files,
+- which dependencies are lazy (`next/dynamic` / `import()`) vs eager,
+- search-param and dynamic-param usage per route,
+- composite/compound component ownership,
+- structural inconsistencies (orphans, cycles, duplicate IDs),
+- derived quality metrics (dead code, reusability, route hotness, bundle risk).
 
-1. **Build-time Analysis** — Integrates into `next.config.ts` via `withIntelligence()` plugin. Runs an 8-phase pipeline before the Next.js build starts.
-2. **CLI Analysis** — Standalone `intelligence` CLI binary for on-demand scanning without a build.
-3. **Runtime Tracking** — React hooks (`useComponentRegistration`, `useRouteTracking`) capture mount/unmount/render telemetry in the browser.
-4. **Source Transformation** — Compiler module injects `useComponentRegistration` calls into `"use client"` components automatically.
-5. **Dashboard Visualization** — React components that render route flow graphs and summary dashboards from the manifest.
+### Primary Workflows
 
-### Target Users
+1. **CLI Analysis** — `intelligence` binary runs the 8-phase pipeline on demand,
+   with `--watch`, `--diff`, `--stats`, `--json`, and `--fail-on-error` modes.
+2. **Build-time Analysis** — `withIntelligence()` wraps `next.config` and runs the
+   pipeline at config-resolution time (before the Next build), supporting both
+   Webpack and Turbopack.
+3. **Source Transformation** — the compiler injects `useComponentRegistration(...)`
+   calls into `"use client"` components.
+4. **Runtime Tracking** — React hooks (`useComponentRegistration`,
+   `useRouteTracking`) plus `IntelligenceProvider` capture mount/unmount/render
+   telemetry in the browser.
+5. **Dashboard Visualization** — React components render route trees, dependency
+   hierarchies, derived insights, a command palette, and a ReactFlow graph.
 
-- Engineering teams with large Next.js monoliths
-- AI coding assistants that need architectural context
-- Platform/DevEx teams building internal developer tooling
+### Main Use Cases
+
+- Understanding/onboarding into large Next.js monoliths.
+- Feeding architectural context to AI coding assistants.
+- CI gating via manifest diffing and `--fail-on-error`.
+- Detecting dead components, low-confidence composites, and reusability hotspots.
+
+### Target Consumers
+
+- Engineering teams with large Next.js App Router codebases.
+- AI agents / LLM tooling needing structured architecture context.
+- Platform / DevEx teams building internal developer tooling.
 
 ### High-Level Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     Consumer Next.js App                  │
-│                                                          │
-│  next.config.ts ──► withIntelligence() ──► Pipeline      │
-│                                                          │
-│  Layout ──► <IntelligenceProvider>                        │
-│               ├─ useRouteTracking()                      │
-│               └─ useComponentRegistration() (auto-injected)│
-│                                                          │
-│  Dev page ──► <IntelligenceDashboard />                   │
-│               └─ <RouteFlowGraph />                      │
-└──────────────────────────────────────────────────────────┘
-         │                    │                 │
-         ▼                    ▼                 ▼
-┌─────────────┐    ┌──────────────────┐   ┌───────────┐
-│  Compiler   │    │    Core Engine    │   │  Runtime   │
-│  (transform │    │  (8-phase pipe)  │   │  (hooks +  │
-│   + plugin) │    │                  │   │  provider) │
-└─────────────┘    └──────────────────┘   └───────────┘
-         │                    │                 │
-         └────────────────────┼─────────────────┘
-                              ▼
-                    ┌──────────────────┐
-                    │   Types Module   │
-                    │ (shared contracts)│
-                    └──────────────────┘
+┌────────────────────────────── Consumer Next.js App ──────────────────────────────┐
+│  next.config.* ─ withIntelligence() ─► runIntelligencePipeline() (build-time)     │
+│  layout ─ <IntelligenceProvider> ─ useRouteTracking() + useComponentRegistration()│
+│  dev page ─ <IntelligenceDashboard /> / <RouteFlowGraph /> / <InsightsPanel />    │
+└───────────────────────────────────────────────────────────────────────────────────┘
+        │                         │                          │
+        ▼                         ▼                          ▼
+┌───────────────┐      ┌────────────────────┐       ┌────────────────┐
+│  compiler     │      │   core engine      │       │   runtime      │
+│ (transform +  │      │  (AnalysisSession  │       │ (provider +    │
+│  next-plugin) │      │   → 8-phase pipe)  │       │  hooks)        │
+└───────────────┘      └────────────────────┘       └────────────────┘
+        │                         │                          │
+        └─────────────────────────┼──────────────────────────┘
+                                   ▼
+                        ┌────────────────────┐
+                        │   types module     │  (shared contracts +
+                        │  + dashboard       │   manifest validation)
+                        └────────────────────┘
 ```
 
 ---
 
 ## 2. Tech Stack
 
-| Category | Technology | Details |
+| Category | Technology | Details (from source/package.json) |
 |---|---|---|
-| **Language** | TypeScript 5.6+ | Strict mode, ES2022 target |
-| **Module System** | ESM (`"type": "module"`) | `.js` extensions added post-build via script |
-| **Framework Target** | Next.js 14+ | App Router, supports Turbopack |
-| **React** | React 18.2+ | Hooks API, Context for runtime |
-| **AST Analysis** | ts-morph 25.x | TypeScript compiler wrapper for symbol resolution |
-| **File Scanning** | fast-glob 3.x | Glob-based file discovery |
-| **Graph Visualization** | @xyflow/react 12.x | ReactFlow for route/dependency graphs |
-| **Build** | `tsc` (TypeScript compiler) | Single `tsconfig.build.json`, no bundler |
-| **Post-build** | Custom `fix-esm-imports.mjs` | Adds `.js` extensions to relative imports |
-| **Package Manager** | npm | No lockfile committed, no monorepo tooling |
+| **Language** | TypeScript `^5.6.3` | ESM, `"type": "module"` |
+| **Module System** | ESM | `.js` extensions appended post-build by `scripts/fix-esm-imports.mjs` |
+| **Framework Target** | Next.js `>=14.0.0` (peer) | App Router; plugin supports Webpack + Turbopack |
+| **React** | `>=18.2.0` (peer), `react-dom >=18.2.0` | Hooks + Context for runtime |
+| **AST Analysis** | `ts-morph ^25.0.1` | TypeScript compiler wrapper; symbol resolution |
+| **File Scanning** | `fast-glob ^3.3.3` | Glob-based discovery |
+| **Graph Visualization** | `@xyflow/react ^12.8.6` | ReactFlow for dashboard graphs |
+| **Build** | `tsc -p tsconfig.build.json` | No bundler |
+| **Post-build** | `scripts/fix-esm-imports.mjs` | Adds `.js` to relative imports |
+| **Testing** | `node --test` over `tests/**/*.test.mjs` | `vitest` is also a devDependency |
+| **Lint** | None configured | `echo "No lint step configured"` |
 | **Registry** | Private Artifactory | `artifacts-local.i2cinc.com/repository/dd-npm-private/` |
-| **Testing** | None configured | `echo "No tests configured"` |
-| **Linting** | None configured | `echo "No lint step configured"` |
-| **CI/CD** | Not enough evidence found | No pipeline config files detected |
-| **Database** | None | Pure analysis tool, outputs JSON files |
-| **Auth** | None | No authentication layer |
+| **Node** | `>=18.18.0` (engines) | `--watch` recursive fs.watch needs Node 20+ on Linux |
+
+Runtime dependencies (shipped): `@xyflow/react`, `fast-glob`, `ts-morph`.
 
 ---
 
@@ -91,661 +121,1059 @@ Provides **architectural intelligence** for large Next.js codebases — enabling
 
 ```
 nextJs-inteligence/
-├── package.json              # Root package — THE published artifact
-├── tsconfig.build.json       # Single build config for all modules
+├── package.json              # THE published artifact (@i2c/intelligence)
+├── tsconfig.build.json       # Single build config
+├── context.md                # This document
+├── docs/rfcs/RFC-001-...md   # Analysis session / IR runtime architecture RFC
 ├── scripts/
-│   └── fix-esm-imports.mjs   # Post-compile ESM fix
-├── tools/                    # All source modules live here
-│   ├── intelligence-types/   # Layer 0: Shared type contracts
-│   ├── intelligence-core/    # Layer 1: Static analysis engine
-│   ├── intelligence-compiler/# Layer 2: Build integration + transforms
-│   ├── intelligence-runtime/ # Layer 2: Browser-side hooks
-│   └── intelligence-dashboard/# Layer 3: Visualization components
-└── dist/                     # Build output (gitignored)
+│   ├── benchmark.mjs
+│   └── fix-esm-imports.mjs   # Post-compile ESM `.js` extension fixer
+├── tests/unit/*.test.mjs     # node:test suites (run against built dist)
+└── tools/
+    ├── intelligence-types/        # Layer 0 — shared contracts + manifest validation
+    │   └── src/index.ts
+    ├── intelligence-core/         # Layer 1 — static analysis engine + CLI
+    │   └── src/
+    │       ├── cli.ts             # `intelligence` binary
+    │       ├── pipeline.ts        # 8-phase orchestrator
+    │       ├── registry.ts        # Singleton manifest aggregator
+    │       ├── cache.ts           # Incremental SHA-256 cache
+    │       ├── config-loader.ts   # .intelligencerc / intelligence.config.*
+    │       ├── derived-metrics.ts # Post-analysis metrics
+    │       ├── manifest-diff.ts   # CI diffing
+    │       ├── output-writer.ts   # Deterministic JSON writer
+    │       ├── logger.ts          # console/silent loggers
+    │       ├── analyzer/          # All AST detectors/builders (17 files)
+    │       ├── session/           # AnalysisSession, SessionState, stores, adapter
+    │       ├── ir/                # InMemoryIRStore (versioned IR snapshots)
+    │       └── passes/            # PassManager (topological pass scheduler)
+    ├── intelligence-compiler/     # Layer 2 — source transform + next-plugin
+    │   └── src/{index,next-plugin,transform}.ts
+    ├── intelligence-runtime/      # Layer 2 — React provider + hooks
+    │   └── src/{index,provider,use-component-registration,use-route-tracking}.tsx
+    └── intelligence-dashboard/    # Layer 3 — React visualization
+        └── src/{index,dashboard,command-palette,insights-panel,route-flow-graph,tokens}.tsx
 ```
 
-### Module Details
+**Dependency direction (must not be violated):**
 
-| Module | Responsibility | Layer |
+```
+dashboard ─► types
+runtime   ─► types
+compiler  ─► core ─► types
+core      ─► types
+types     ─► (no internal deps)
+```
+
+`intelligence-types` is the bottom layer and depends on nothing internal. `core`
+depends on `types`. `compiler` depends on `core` (for `classifyComponent` and
+`runIntelligencePipeline`) and `runtime` (the injected import target). `runtime`
+and `dashboard` depend only on `types`.
+
+---
+
+## 4. Public API Surface
+
+Exports map (from `package.json`):
+
+| Subpath | Source entry | Purpose |
 |---|---|---|
-| `intelligence-types` | All shared TypeScript interfaces, type unions, utility functions (`buildCanonicalId`, `isBuiltinHook`). Zero runtime dependencies. | 0 (foundation) |
-| `intelligence-core` | 8-phase analysis pipeline, AST component extraction, route detection, composite detection, canonicalization, graph construction, verification, CLI, caching, output writing. | 1 (engine) |
-| `intelligence-compiler` | Next.js plugin (`withIntelligence`), source code transformation (injects `useComponentRegistration` into client components). | 2 (integration) |
-| `intelligence-runtime` | React Context provider, `useComponentRegistration`, `useRouteTracking` hooks for browser telemetry. | 2 (integration) |
-| `intelligence-dashboard` | `IntelligenceDashboard` component, `RouteFlowGraph` (ReactFlow), route tree, summary grids, component usage tables. | 3 (presentation) |
+| `.` / `./core` | `intelligence-core/src/index.ts` | Pipeline, registry, session, analyzer facade |
+| `./core/analyzer` | `intelligence-core/src/analyzer/index.ts` | Individual detectors/builders |
+| `./compiler` | `intelligence-compiler/src/index.ts` | Source transforms |
+| `./compiler/next-plugin` | `intelligence-compiler/src/next-plugin.ts` | `withIntelligence()` |
+| `./runtime` | `intelligence-runtime/src/index.ts` | Provider + hooks |
+| `./dashboard` | `intelligence-dashboard/src/index.ts` | React UI |
+| `./types` | `intelligence-types/src/index.ts` | Shared contracts |
 
-### Dependency Direction (STRICT)
+`bin`: `intelligence` → `dist/tools/intelligence-core/src/cli.js`.
 
-```
-types ◄── core ◄── compiler
-  ▲         ▲
-  │         │
-  └── runtime
-  ▲
-  │
-  └── dashboard
-```
+### 4.1 `./core` exports (`intelligence-core/src/index.ts`)
 
-**Rules**:
-- `types` depends on nothing internal
-- `core` depends only on `types`
-- `compiler` depends on `core` and `types`
-- `runtime` depends on `types` only
-- `dashboard` depends on `types` only
-- NO circular dependencies exist
+- `IntelligenceRegistry` — singleton manifest aggregator (class).
+- `runIntelligencePipeline(userConfig?, options?)` → `Promise<IntelligenceManifest>`.
+- `runIntelligencePipelineDetailed(userConfig?, options?)` → `Promise<PipelineRunResult>`.
+- `runIntelligencePipelineInternal(config, registry, diagnosticsStore?, logger?)` →
+  `Promise<PipelineRunResult>` (used by `AnalysisSession`).
+- Types: `PipelineRunOptions`, `PipelineRunResult`.
+- `consoleLogger`, `silentLogger`, type `Logger`.
+- `loadConfigFile(projectRoot)`, `mergeConfigs(loaded, user)`, type `ConfigLoadResult`.
+- `OutputWriter` (class).
+- `IncrementalCache` (class).
+- `diffManifests(prev, curr)`, `formatManifestDiff(diff)`, type `ManifestDiff`.
+- `deriveMetrics(manifest, bundleStats?)`, `loadBundleStats(projectRoot, path?)`.
+- Re-exports from `./analyzer/index` (see 4.2).
+- Session/IR/passes: `AnalysisSession`, `SessionState`, `PassManager`,
+  `PassScheduleError`, types `AnalysisPass`, `PassExecutionRecord`,
+  `InMemoryDiagnosticsStore`, `InMemoryIRStore`, `RegistryAdapter`.
 
-### Important Conventions
+**Usage example:**
 
-- All internal cross-module imports use **relative paths** (`../../intelligence-types/src/index`)
-- Each module has its own `package.json` (marked `"private": true`) — these are NOT published individually
-- Only the **root** `package.json` is published as `@i2c/intelligence`
-- Sub-module exports are exposed via the root `"exports"` field map
+```ts
+import { runIntelligencePipelineDetailed } from "@i2c/intelligence/core";
 
----
-
-## 4. Application Architecture
-
-### Rendering Strategy
-
-The toolkit **analyzes** Next.js rendering strategies but does not itself implement SSR/SSG. Key detection:
-- Files with `"use client"` → `RenderingEnvironment: "client"`
-- Files without → `RenderingEnvironment: "server"`
-- The runtime hooks are client-only (`"use client"` directive)
-
-### Data Flow
-
-```
-Source Files (.tsx/.ts)
-    │
-    ▼ (Phase 1: ComponentAnalyzer + SymbolResolver)
-ComponentMeta[]
-    │
-    ▼ (Phase 2: detectRoutes)
-RouteMeta[]
-    │
-    ▼ (Phase 3: CompositeDetector)
-CompositeGroup Map
-    │
-    ▼ (Phase 4: Canonicalizer)
-Canonicalized ComponentMeta[]
-    │
-    ▼ (Phase 5: RouteIntelligenceBuilder + RecursiveTraverser)
-RouteIntelligence{}
-    │
-    ▼ (Phase 6: GraphBuilder)
-SeparatedGraphs { import, render, compositeOwnership, runtimeMount }
-    │
-    ▼ (Phase 7: VerificationPass)
-Diagnostic[]
-    │
-    ▼ (Phase 8: OutputWriter)
-.generated/intelligence/
-    ├── manifest.json
-    ├── graph.json
-    ├── routes.json
-    ├── runtime.json
-    ├── diagnostics.json
-    └── graphs/
-        ├── import.json
-        ├── render.json
-        ├── composite-ownership.json
-        └── runtime-mount.json
+const { manifest, telemetry } = await runIntelligencePipelineDetailed(
+  { projectRoot: process.cwd(), outputDir: ".generated/intelligence" }
+);
+console.log(manifest.summary, telemetry.totalDurationMs);
 ```
 
-### State Management
+### 4.2 `./core/analyzer` exports (`analyzer/index.ts`)
 
-- **Build-time**: `IntelligenceRegistry` singleton aggregates all analysis data
-- **Runtime**: React Context (`IntelligenceContext`) with `useRef` for mutable state (avoids re-renders)
-- **Dashboard**: Local `useState` + `useMemo` for UI state; data loaded via fetch or prop
+- `ComponentAnalyzer` (class), type `ParseFailure`.
+- `detectRoutes(projectRoot, appDirs)`.
+- `detectApiRoutes(projectRoot, appDirs)`, `detectMiddleware(projectRoot)`.
+- `detectParallelSlots(projectRoot, appDirs)`.
+- `ServerActionDetector` (class).
+- `classifyComponent(...)`, `containsProviderPattern(src)`,
+  `DEFAULT_CLASSIFICATION_RULES`.
+- `GraphBuilder` (class).
+- `RecursiveTraverser`, `InMemoryTraversalCache`; types `TraversalCache`,
+  `ResolvedDependency`, `TraversalResult`.
+- `SearchParamsAnalyzer` (class).
+- `RouteIntelligenceBuilder` (class).
+- `CompositeDetector` (class).
+- `SymbolResolver` (class).
+- `Canonicalizer` (class).
+- `VerificationPass` (class).
+- `BuildOutputAnalyzer` (class); types `BuildOutputAnalysis`,
+  `BuildOutputRouteInfo`, `BuildOutputServerAction`, `BuildOutputClientBoundary`,
+  `BuildOutputMiddleware`.
 
-### Caching Strategy
+> Note: `BuildOutputAnalyzer` is exported from the analyzer barrel but is **not
+> invoked by the main pipeline** (`pipeline.ts`). It is an available building
+> block for `.next/` build-output analysis, consumed on demand.
 
-- `IncrementalCache` class stores SHA-256 file content hashes in `node_modules/.cache/intelligence/intelligence-cache.json`
-- Files that haven't changed are skipped on subsequent runs
-- Cache is opt-in via `incremental: true` (default)
+### 4.3 `./compiler` exports
 
-### Error Handling
+- `transformSource(source, filePath, projectRoot)` →
+  `{ code, transformed, componentsInjected }`.
+- `transformFile(filePath, projectRoot)` → `Promise<TransformResult>`.
+- `transformProject(options)` → `Promise<TransformResult[]>`.
+- `withIntelligence(nextConfig?, pluginOptions?)` → `Promise<NextConfig>` (also at
+  `./compiler/next-plugin`).
 
-- Pipeline errors are caught and logged but do NOT fail the Next.js build (`catch` in `withIntelligence`)
-- Verification errors are structured `Diagnostic` objects with severity levels (error/warning/info)
-- No global error boundaries or retry logic
+**Usage example (`next.config.mjs`):**
 
-### Routing Structure (Analysis Target)
-
-The toolkit understands Next.js App Router conventions:
-- `page.tsx` → route entry point
-- `layout.tsx`, `loading.tsx`, `error.tsx`, `template.tsx` → special files
-- Route groups `(groupName)` → skipped in URL path
-- Parallel routes `@slot` → skipped in URL path
-- Dynamic segments `[param]`, `[...slug]`, `[[...slug]]`
-- Intercepting routes `(.)`, `(..)`, `(...)`
-
----
-
-## 5. Coding Patterns
-
-### Canonical Identity System
-
-The **most critical pattern** in the codebase. Every component is identified by:
-
-```
-{relativePath}#{exportName}
-```
-
-Example: `app/components/data-grid/index.tsx#DataGrid`
-
-This is enforced by `buildCanonicalId()` in `intelligence-types` and the `CanonicalIdentity` interface. All downstream systems (graphs, route intelligence, runtime tracking) use this format.
-
-### Classification Rules
-
-Components are classified via a priority chain:
-1. Custom rules (user-provided `ClassificationRule[]`)
-2. Default rules (`DEFAULT_CLASSIFICATION_RULES` — name patterns, import patterns, JSX tag patterns)
-3. AST-based provider detection (`createContext` in source body)
-4. File-convention fallback (`page.tsx` → "page", `layout.tsx` → "layout", etc.)
-5. Default: `"component"`
-
-### Composite Component Detection
-
-Detects compound/compound component APIs (e.g., `DataGrid.Header`) via:
-1. **Semantic signals** (high confidence): `Object.assign()`, static property assignments, dotted JSX, module co-location
-2. **Prefix heuristics** (fallback): `DataGridTable` → root `DataGrid` + sub `Table`
-
-### Naming Conventions
-
-| Entity | Convention | Example |
-|---|---|---|
-| Classes | PascalCase | `ComponentAnalyzer`, `GraphBuilder` |
-| Interfaces/Types | PascalCase | `ComponentMeta`, `RouteIntelligence` |
-| Functions | camelCase | `detectRoutes`, `classifyComponent` |
-| Files | kebab-case | `component-analyzer.ts`, `route-detector.ts` |
-| Constants | UPPER_SNAKE_CASE | `DEFAULT_CLASSIFICATION_RULES`, `INJECTION_MARKER` |
-| Canonical IDs | `path#Name` | `app/page.tsx#HomePage` |
-
-### File Organization Pattern
-
-Each analyzer file follows a consistent structure:
-1. Imports (node builtins → ts-morph → types → sibling modules)
-2. Type definitions (interfaces, exported types)
-3. Main class/function export
-4. Private helper methods
-
-### Component Composition Style
-
-- Dashboard uses **inline styles** (no CSS framework)
-- ReactFlow custom nodes (`RouteNode`, `CompactNode`) with `Handle` components
-- Lazy loading via `React.lazy()` for `RouteFlowGraph`
-
-### Hook Patterns
-
-- `useManifestData()` — data fetching hook with AbortController cleanup
-- `useComponentRegistration()` — effect-based mount/unmount tracking with `useRef` for render timing
-- `useRouteTracking()` — effect + MutationObserver for SPA navigation detection
-
----
-
-## 6. Important Core Systems
-
-### 6.1 Analysis Pipeline (`pipeline.ts`)
-
-**Purpose**: Orchestrates the complete static analysis in 8 sequential phases.
-
-**Lifecycle**:
-```
-configure → clear registry → load cache → Phase 1-8 → write output → save cache
+```js
+import { withIntelligence } from "@i2c/intelligence/compiler/next-plugin";
+export default await withIntelligence({ /* nextConfig */ }, { appDir: "app" });
 ```
 
-**Phase Detail**:
+### 4.4 `./runtime` exports
 
-| Phase | Class/Function | Input | Output |
-|---|---|---|---|
-| 1 | `ComponentAnalyzer` | Source files | `ComponentMeta[]`, import/render edges |
-| 2 | `detectRoutes` | App directory | `RouteMeta[]` |
-| 3 | `CompositeDetector.detect` | Project + components | `Map<string, CompositeGroup>` |
-| 4 | `Canonicalizer.canonicalize` | Components + composites | `CanonicalizationResult` |
-| 5 | `RouteIntelligenceBuilder.build` | Routes + components | `RouteIntelligence{}`, `ComponentUsageMap` |
-| 6 | `GraphBuilder` | Components + routes + edges | `SeparatedGraphs`, `DependencyGraph` |
-| 7 | `VerificationPass.verify` | All data | `Diagnostic[]` |
-| 8 | `OutputWriter.writeAll` | Manifest | JSON files on disk |
+- `IntelligenceProvider` (`React.FC<{ children, debug? }>`).
+- `useIntelligenceContext()` → context value.
+- `useComponentRegistration(meta: ComponentRegistration)` → `void`.
+- `useRouteTracking()` → `void`.
 
-**Extension Points**: `AnalyzerConfig.customRules` for custom classification.
+**Usage example (root layout):**
 
-### 6.2 Symbol Resolution Engine (`symbol-resolver.ts`)
+```tsx
+import { IntelligenceProvider, useRouteTracking } from "@i2c/intelligence/runtime";
 
-**Purpose**: Resolves JSX tags and imports to canonical identities using ts-morph's type checker.
-
-**Strategies** (in priority order):
-1. TypeScript type checker symbol lookup at node position
-2. Import declaration tracing (follows re-exports, barrel files, aliases)
-3. Local declaration resolution
-
-**Handles**: Direct imports, default imports, aliased imports, barrel exports, re-exports, namespace imports, path aliases (via tsconfig), dotted JSX.
-
-**Caching**: In-memory `Map<string, ResolvedSymbol>` keyed by `filePath:name`.
-
-### 6.3 Recursive Traverser (`recursive-traverser.ts`)
-
-**Purpose**: Walks the entire import tree from root files using iterative DFS.
-
-**Internal Flow**:
-1. Start from page/layout/template root files
-2. For each file: extract dependencies via ts-morph module resolution
-3. Classify each export (`component`, `hook`, `util`, `provider`, `type`, `unknown`)
-4. Track visited files to prevent cycles
-5. Record max depth, all discovered hooks/utils/providers/components
-
-**Does NOT hardcode path aliases** — relies on ts-morph's compiler-aware resolution.
-
-### 6.4 Graph System (`graph-builder.ts`)
-
-**Purpose**: Builds 4 semantically distinct dependency graphs.
-
-| Graph | Relationship | Meaning |
-|---|---|---|
-| Import | `imports` | Module-level `import` statement |
-| Render | `renders` | JSX containment (`<Child />` inside parent) |
-| Composite Ownership | `owns` | Compound component relationship |
-| Runtime Mount | `mounts` | Actual DOM hierarchy (from runtime data) |
-
-**Design principle**: These relationships are **semantically different and MUST NOT be conflated**. A unified graph is also produced for backward compatibility.
-
-### 6.5 Verification System (`verification.ts`)
-
-**Purpose**: Structural validation after graph construction.
-
-**Checks**:
-- Orphan nodes (unreachable from any route)
-- Unresolved JSX tags
-- Duplicate canonical IDs
-- Invalid route ownership
-- Circular ownership in composites
-- Duplicate composite registration
-- Render cycles
-- Runtime/static mismatches
-
-### 6.6 Registry (`registry.ts`)
-
-**Purpose**: Singleton aggregator for build-time and runtime data.
-
-**Pattern**: Classic singleton (`getInstance()` / `resetInstance()`).
-
-**Responsibilities**: Store components, routes, route intelligence, component usage, runtime data, graph nodes/edges. Export complete `IntelligenceManifest`.
-
----
-
-## 7. Dependency Mapping
-
-### External Dependencies
-
-| Dependency | Used By | Purpose |
-|---|---|---|
-| `ts-morph` | core | AST parsing, TypeScript symbol resolution, type checker |
-| `fast-glob` | core, compiler | File discovery via glob patterns |
-| `@xyflow/react` | dashboard | Graph visualization (ReactFlow) |
-
-### Peer Dependencies
-
-| Peer | Minimum Version |
-|---|---|
-| `next` | >=14.0.0 |
-| `react` | >=18.2.0 |
-| `react-dom` | >=18.2.0 |
-
-### Internal Module Relationships
-
-```
-intelligence-types (0 deps)
-    ▲
-    │ imports types + buildCanonicalId + isBuiltinHook
-    │
-intelligence-core
-    │ imports types
-    │ uses ts-morph, fast-glob
-    ▲
-    │ imports runIntelligencePipeline, classifyComponent
-    │
-intelligence-compiler
-    │ imports core/pipeline, core/analyzer/classifier
-    │ imports types
-    │ uses fast-glob
-    │
-intelligence-runtime
-    │ imports types only
-    │
-intelligence-dashboard
-    │ imports types only
-    │ uses @xyflow/react
-```
-
-### Circular Dependency Risks
-
-**None detected.** The dependency direction is strictly layered.
-
-### Tight Coupling Areas
-
-- `compiler/transform.ts` directly imports `classifyComponent` from `core/analyzer/classifier.ts` via relative path
-- `compiler/next-plugin.ts` directly imports `runIntelligencePipeline` from `core/pipeline.ts` via relative path
-- All cross-module imports use deep relative paths (`../../intelligence-core/src/...`) — these would break if folder structure changes
-
----
-
-## 8. Environment & Configuration
-
-### Config Files
-
-| File | Purpose |
-|---|---|
-| `tsconfig.build.json` | Build configuration — ES2022, ESNext modules, bundler resolution, JSX react-jsx |
-| `package.json` (root) | Published package config with exports map |
-| `package.json` (per module) | Module-local metadata (all `"private": true`) |
-
-### TypeScript Configuration
-
-```jsonc
-{
-  "target": "ES2022",
-  "module": "ESNext",
-  "moduleResolution": "bundler",
-  "jsx": "react-jsx",
-  "strict": true,
-  "declaration": true,
-  "declarationMap": true,
-  "sourceMap": true,
-  "isolatedModules": true,
-  "verbatimModuleSyntax": false,  // Important: allows `import type` flexibility
-  "outDir": "dist",
-  "rootDir": "."
+function RouteSync() { useRouteTracking(); return null; }
+export default function Layout({ children }) {
+  return <IntelligenceProvider><RouteSync />{children}</IntelligenceProvider>;
 }
 ```
 
-**Include**: `tools/*/src/**/*.ts`, `tools/*/src/**/*.tsx`
+### 4.5 `./dashboard` exports
 
-### Runtime Configuration
+- Components: `IntelligenceDashboard`, `SummaryGrid`, `SummaryCard`, `RouteTree`,
+  `RouteIntelligencePanel`, `DependencyHierarchy`, `ComponentUsageTable`,
+  `RuntimeTree`, `RouteFlowGraph`, `CommandPalette`, `InsightsPanel`.
+- Hook: `useManifestData(options)`.
+- Tokens: `lightTokens`, `darkTokens`, `useTheme()`.
+- Types: `PaletteResult`, `InsightsPanelProps`.
 
-The pipeline accepts `AnalyzerConfig` with these defaults:
+### 4.6 `./types` exports (`intelligence-types/src/index.ts`)
 
-| Option | Default |
-|---|---|
-| `appDir` | `"app"` |
-| `outputDir` | `".generated/intelligence"` |
-| `incremental` | `true` |
-| `cacheDir` | `"node_modules/.cache/intelligence"` |
-| `include` | `["app/**/*.{tsx,ts}", "components/**/*.{tsx,ts}", "@ui/**/*.{tsx,ts}", "ui/**/*.{tsx,ts}"]` |
-| `exclude` | `["**/*.test.*", "**/*.spec.*", "**/*.stories.*", "**/__tests__/**"]` |
+Type contracts (interfaces/types): `ComponentType`, `RenderingEnvironment`,
+`CanonicalIdentity`, `EvidenceType`, `ConfidenceMeta`, `DiagnosticSeverity`,
+`DiagnosticCategory`, `Diagnostic`, `ComponentMeta`, `RouteMeta`,
+`ApiRouteMethod`, `ApiRoute`, `MiddlewareMeta`, `ParallelSlot`,
+`ServerActionMeta`, `SearchParamUsage`, `RouteComplexity`, `RouteIntelligence`,
+`ComponentUsageMap`, `RuntimeMeta`, `GraphNode`, `GraphEdge`, `ImportGraph`,
+`RenderGraph`, `CompositeOwnershipGraph`, `RuntimeMountGraph`, `SeparatedGraphs`,
+`DependencyGraph`, `IntelligenceSummary`, `IntelligenceManifest`,
+`RouteBundleStats`, `BundleStats`, `ConfidenceHistogram`,
+`ComponentDerivedMetrics`, `RouteDerivedMetrics`, `DerivedMetrics`,
+`ComponentRegistration`, `ClassificationRule`, `AnalyzerConfig`,
+`PhaseTelemetry`, `PipelineTelemetry`, `ManifestValidationResult`.
 
-### Environment Variables
+Runtime values / functions:
 
-Not enough evidence found — no `.env` files or `process.env` references beyond `process.cwd()`.
-
-### Feature Flags
-
-- `IntelligencePluginOptions.enabled` — disable the plugin entirely
-- `IntelligencePluginOptions.incremental` — toggle incremental caching
-- `IntelligenceProvider.debug` — enable console logging of runtime events
+- `REACT_BUILTIN_HOOKS`, `NEXTJS_BUILTIN_HOOKS` (`ReadonlySet<string>`).
+- `isBuiltinHook(name)` → `boolean`.
+- `buildCanonicalId(relativePath, exportName)` → `string`.
+- `parseCanonicalId(id)` → `{ sourceFile, exportName }`.
+- `MANIFEST_SCHEMA_VERSION = "1.1.0"`, `DERIVED_METRICS_VERSION = "1.0.0"`.
+- `validateManifest(data)` → `ManifestValidationResult`.
+- `assertManifest(data)` → asserts `IntelligenceManifest` (throws on failure).
 
 ---
 
-## 9. API Documentation
+## 5. Internal Module Architecture
 
-### Exports Map (Public API)
+For each major module: responsibility, public API, internal dependencies, and
+consumers.
 
-| Import Path | Resolved Module | Key Exports |
-|---|---|---|
-| `@i2c/intelligence` | core/index | `IntelligenceRegistry`, `runIntelligencePipeline`, `OutputWriter`, `IncrementalCache`, all analyzer exports |
-| `@i2c/intelligence/core` | core/index | Same as above |
-| `@i2c/intelligence/core/analyzer` | core/analyzer/index | `ComponentAnalyzer`, `detectRoutes`, `classifyComponent`, `GraphBuilder`, `RecursiveTraverser`, `SearchParamsAnalyzer`, `RouteIntelligenceBuilder`, `CompositeDetector`, `SymbolResolver`, `Canonicalizer`, `VerificationPass` |
-| `@i2c/intelligence/compiler` | compiler/index | `transformSource`, `transformFile`, `transformProject`, `withIntelligence` |
-| `@i2c/intelligence/compiler/next-plugin` | compiler/next-plugin | `withIntelligence` |
-| `@i2c/intelligence/runtime` | runtime/index | `IntelligenceProvider`, `useIntelligenceContext`, `useComponentRegistration`, `useRouteTracking` |
-| `@i2c/intelligence/dashboard` | dashboard/index | `IntelligenceDashboard`, `RouteFlowGraph`, `SummaryGrid`, `SummaryCard`, `RouteTree`, `RouteIntelligencePanel`, `DependencyHierarchy`, `ComponentUsageTable`, `RuntimeTree`, `useManifestData` |
-| `@i2c/intelligence/types` | types/index | All TypeScript interfaces, type unions, `buildCanonicalId`, `parseCanonicalId`, `isBuiltinHook` |
+### 5.1 `pipeline.ts`
 
-### CLI Usage
+- **Responsibility**: orchestrate the 8-phase analysis; manage incremental
+  cache, partial route reuse, telemetry, manifest export and writing.
+- **Public API**: `runIntelligencePipeline`, `runIntelligencePipelineDetailed`,
+  `runIntelligencePipelineInternal`, `DEFAULT_CONFIG` (internal).
+- **Depends on**: app-dir-resolver, ComponentAnalyzer, route/api/slot detectors,
+  ServerActionDetector, CompositeDetector, Canonicalizer,
+  RouteIntelligenceBuilder, GraphBuilder, VerificationPass, OutputWriter,
+  IncrementalCache, config-loader, derived-metrics, AnalysisSession, registry.
+- **Consumers**: `cli.ts`, `next-plugin.ts`, `AnalysisSession`, tests.
 
-```bash
-intelligence --root ./my-project --app-dir src/app --output .generated/intelligence --no-cache
+### 5.2 `registry.ts` — `IntelligenceRegistry`
+
+- **Responsibility**: singleton that aggregates components, routes, route
+  intelligence, component usage, runtime data, and graph edges, then exports an
+  `IntelligenceManifest`.
+- **Public API** (selected): `getInstance()`, `resetInstance()`,
+  `setProjectRoot()`, `registerComponent(s)`, `registerRoute(s)`,
+  `registerRouteIntelligence`, `registerComponentUsage`, `mountComponent`,
+  `unmountComponent`, `recordRender`, `getRuntimeData`, `mergeRuntimeData`,
+  `addEdge(s)`, `exportGraph()`, `exportManifest()`, `clear()`.
+- **Internal logic**: edges deduped by `${source}|${target}|${relationship}`;
+  runtime merge sums counts and unions routes; `computeSummary()` derives type
+  counts and avg/max complexity. Summary fields `apiRoutes`, `middlewareCount`,
+  `parallelSlots`, `serverActions` are initialized to 0 and **patched by the
+  pipeline** after Phase 2 detection.
+- **Consumers**: pipeline, AnalysisSession, runtime registry merging.
+
+### 5.3 `session/` (RFC-001 runtime)
+
+- `AnalysisSession` — orchestrator wrapping `runIntelligencePipelineInternal`.
+  Holds `state`, `registry`, `diagnosticsStore`, `irStore`, `passManager`,
+  `logger`. Methods `run()`, `runDetailed()`, `dispose()`. Drives lifecycle
+  transitions `initialized → ir-built → passes-executed → verified → emitted`.
+- `SessionState` — strict lifecycle FSM. States: `created`, `initialized`,
+  `ir-built`, `passes-executed`, `verified`, `emitted`, `failed`, `disposed`.
+  `transitionTo()` throws on invalid transitions; `failed`/`disposed` reachable
+  from any state.
+- `InMemoryDiagnosticsStore` (implements `DiagnosticsStore`): `add`, `addMany`,
+  `getAll`, `clear`.
+- `RegistryAdapter.resolve(registry?)` — returns injected registry or singleton.
+
+### 5.4 `ir/ir-store.ts` — `InMemoryIRStore`
+
+- Versioned IR snapshots. `IRKind = "ast" | "semantic" | "graph" | "manifest"`.
+  `SnapshotId` format `${kind}:${6-digit-counter}` (e.g. `ast:000001`).
+- API: `beginWrite<T>(kind, passId)` → `IRWriteHandle<T>` (`set`, `commit`),
+  `getSnapshot<T>(id)`, `getLatestSnapshotId(kind)`, `clear()`.
+
+### 5.5 `passes/pass-manager.ts` — `PassManager`
+
+- Deterministic pass scheduler. `AnalysisPass { id, stage, dependsOn?, run() }`
+  with `stage ∈ {build-ir, analyze, verify, emit-prep}`.
+- Kahn topological sort with stage-index + id tie-breaking for byte-identical
+  ordering. Cycle/unknown-dependency detection throws `PassScheduleError`
+  (optionally carrying the cycle).
+- `PassExecutionRecord` includes `deterministicOrderKey` = SHA-256 of
+  `${stage}:${id}`. API: `register`, `plan()`, `runAll()`, `getLedger()`.
+
+### 5.6 Support modules
+
+- `cache.ts` — `IncrementalCache`: SHA-256 content hashing; persists
+  `${cacheDir}/intelligence-cache.json` (`{ version: 1, entries }`).
+- `config-loader.ts` — loads `.intelligencerc.json`, `.intelligencerc`,
+  `intelligence.config.mjs`, `intelligence.config.js` (first match wins).
+- `derived-metrics.ts` — `deriveMetrics`, `loadBundleStats`.
+- `manifest-diff.ts` — `diffManifests`, `formatManifestDiff`.
+- `output-writer.ts` — `OutputWriter` (deterministic, key-sorted JSON).
+- `logger.ts` — `consoleLogger` (`[intelligence]` prefix), `silentLogger`.
+
+---
+
+## 6. Analysis Pipeline
+
+The pipeline is implemented in `runIntelligencePipelineInternal` (`pipeline.ts`).
+Eight phases run sequentially. Telemetry is recorded per phase
+(`PhaseTelemetry`), aggregated into `PipelineTelemetry`.
+
+```
+Phase 1  Discovery            ComponentAnalyzer.analyze() + SymbolResolver
+   ▼  (components, importEdges, renderEdges, ts-morph project, parse failures)
+Phase 2  Route Detection      detectRoutes / detectApiRoutes / detectMiddleware /
+   ▼                          detectParallelSlots + ServerActionDetector
+Phase 3  Composite Detection  CompositeDetector.detect() + applyToComponents()
+   ▼
+Phase 4  Canonicalization     Canonicalizer.canonicalize()
+   ▼
+Phase 5  Route Intelligence   RouteIntelligenceBuilder.build() (recursive traversal)
+   ▼
+Phase 6  Graph Construction   GraphBuilder.buildSeparated() + build()
+   ▼
+Phase 7  Verification         VerificationPass.verify() → Diagnostic[]
+   ▼
+Phase 8  Export + Write       registry.exportManifest() → deriveMetrics →
+                              OutputWriter.writeAll() + cache.save()
 ```
 
-| Flag | Default | Description |
-|---|---|---|
-| `--root` | `process.cwd()` | Project root directory |
-| `--app-dir` | `"app"` | App Router directory |
-| `--output` | `".generated/intelligence"` | Output directory |
-| `--no-cache` | `false` | Disable incremental caching |
+### Phase details
 
-### Output Files
+| Phase | Input | Processing | Output | Main classes/functions |
+|---|---|---|---|---|
+| 1 Discovery | config include globs | Parse files with ts-morph; extract components, imports, JSX render edges; symbol resolution | `components`, `importEdges`, `renderEdges`, `project`, `parseFailures` | `ComponentAnalyzer`, `SymbolResolver`, `classifyComponent` |
+| 2 Route detection | projectRoot, appDirs | Glob `page.*`, `route.*`, `middleware.*`, `@slot/page.*`; detect server actions from project | `routes`, `apiRoutes`, `middleware`, `parallelSlots`, `serverActions` | `detectRoutes`, `detectApiRoutes`, `detectMiddleware`, `detectParallelSlots`, `ServerActionDetector` |
+| 3 Composite | project, components | Semantic-first (static-assign / Object.assign / dotted JSX / module co-location) then prefix heuristic | `Map<string, CompositeGroup>` | `CompositeDetector` |
+| 4 Canonicalization | components, composites | Normalize identities, collapse sub-components to root, build lookup maps | `CanonicalizationResult` | `Canonicalizer` |
+| 5 Route intelligence | project, routes, canonical components, composites | Recursive DFS traversal per route (page+layout+template+loading+error roots); search/dynamic params; complexity; eager/lazy split; optional cache reuse | `routeIntelligence`, `componentUsage`, `updatedComponents` | `RouteIntelligenceBuilder`, `RecursiveTraverser`, `SearchParamsAnalyzer` |
+| 6 Graph build | components, routes, edges, composites | Build separated graphs (import/render/ownership/runtimeMount) + unified | `SeparatedGraphs`, `DependencyGraph` | `GraphBuilder` |
+| 7 Verification | components, routes, graphs, composites | Structural passes (orphans, cycles, duplicates, unresolved JSX, confidence) | `Diagnostic[]` | `VerificationPass` |
+| 8 Output | manifest + derived | Export manifest, derive metrics, merge bundle stats, write JSON, persist cache | files on disk + `PipelineRunResult` | `IntelligenceRegistry.exportManifest`, `deriveMetrics`, `OutputWriter` |
 
-| File | Content |
-|---|---|
-| `manifest.json` | Complete `IntelligenceManifest` (all data) |
-| `graph.json` | Unified `DependencyGraph` |
-| `routes.json` | `Record<string, RouteIntelligence>` |
-| `runtime.json` | `Record<string, RuntimeMeta>` |
-| `diagnostics.json` | `Diagnostic[]` |
-| `graphs/import.json` | Import relationship graph |
-| `graphs/render.json` | Render (JSX) relationship graph |
-| `graphs/composite-ownership.json` | Composite component ownership graph |
-| `graphs/runtime-mount.json` | Runtime mount graph |
+### Incremental short-circuit & partial reuse
 
-### No HTTP API
+When `incremental: true` (`pipeline.ts`):
 
-This is a build tool / library, not a server. No REST/GraphQL endpoints.
-
----
-
-## 10. Performance Strategies
-
-| Strategy | Implementation | Location |
-|---|---|---|
-| **Incremental caching** | SHA-256 content hashing, skip unchanged files | `cache.ts` |
-| **Lazy loading** | `React.lazy()` for `RouteFlowGraph` component | `dashboard.tsx` |
-| **Symbol resolution caching** | In-memory `Map` cache in `SymbolResolver` | `symbol-resolver.ts` |
-| **Iterative DFS** | `RecursiveTraverser` uses iterative (not recursive) DFS to avoid stack overflow | `recursive-traverser.ts` |
-| **Visited set** | Prevents re-processing files in dependency tree | `recursive-traverser.ts` |
-| **Edge deduplication** | `GraphBuilder.dedup()` prevents duplicate edges | `graph-builder.ts` |
-| **Deterministic output** | `OutputWriter` sorts object keys for stable JSON diffs | `output-writer.ts` |
-| **Parallel file writes** | `Promise.all()` for writing output files | `output-writer.ts` |
-| **useRef for mutable state** | Runtime provider uses `useRef` to avoid re-renders on mount/unmount | `provider.tsx` |
-| **AbortController** | Dashboard data fetching supports cancellation | `dashboard.tsx` |
-| **MutationObserver** | Efficient SPA navigation detection without polling | `use-route-tracking.tsx` |
+1. `IncrementalCache.classifyChanges(snapshot)` returns `added/changed/removed/
+   unchanged`.
+2. **Full cache hit** — if nothing changed and a prior manifest validates, the
+   pipeline returns the cached manifest and skips all phases
+   (`incremental.cacheHit = true`).
+3. **Partial reuse** — otherwise, a prior manifest's `routeIntelligence` entries
+   whose `dependencyFiles` do not intersect the change frontier
+   (`added ∪ changed ∪ removed`, project-relative POSIX) are passed to Phase 5 as
+   `reusableRoutes`, skipping recursive AST traversal for those routes.
 
 ---
 
-## 11. Developer Workflow
+## 7. Route Intelligence System
 
-### Local Setup
+`RouteIntelligenceBuilder` (`route-intelligence-builder.ts`) produces a
+`RouteIntelligence` record per route path. Each record (see
+`intelligence-types`) includes:
 
-```bash
-git clone <repo>
-cd nextJs-inteligence
-npm install
+- `path`, `filePath`, `relativePath`, `segmentType`.
+- `searchParams: Record<string, SearchParamUsage>`, `dynamicParams: string[]`.
+- Component buckets: `components`, `lazyComponents`, `eagerComponents`, `hooks`,
+  `utils`, `providers`, `dialogs`, `grids`, `charts`, `dependencies`,
+  `dependencyCount`.
+- `dependencyFiles?` — every traversed source file (page + layout/template/
+  loading/error + everything reachable via imports / `next/dynamic` / `import()`),
+  sorted and deduplicated. Drives incremental partial reuse.
+- `complexity: { depth, components, dependencies }`.
+- Special files: `layoutFilePath`, `loadingFilePath`, `errorFilePath`,
+  `templateFilePath`; plus `isRouteGroup`, `parentRoute`.
+
+**Traversal**: `RecursiveTraverser` does iterative DFS over the ts-morph project,
+visiting each file once. It classifies each `ResolvedDependency` by `kind`
+(`component | hook | util | provider | type | unknown`) and marks `isLazy: true`
+for components reached **only** through `next/dynamic` or bare `import()` (never
+via an eager import). `InMemoryTraversalCache` memoizes per-file analysis,
+collapsing repeated work across routes; cache `{ hits, misses }` are reported in
+telemetry.
+
+**Search/dynamic params**: `SearchParamsAnalyzer.analyzeFiles()` handles function
+parameter destructuring, renamed/nested destructuring, `useSearchParams()` /
+`useParams()` variable bindings, bracket access, and `.get/.getAll/.has()`.
+`SearchParamsAnalyzer.extractParamsFromRoutePath()` extracts `[param]` segments.
+
+**Route detection** (`route-detector.ts`): globs `**/page.{tsx,ts,jsx,js}`,
+associates adjacent `layout/loading/error/template` files, strips route groups
+`(name)` and parallel slots `@slot` from URL paths, and types segments
+(`static | dynamic | catch-all | optional-catch-all | parallel | intercepting`).
+
+**API routes & middleware** (`api-route-detector.ts`): regex-based extraction of
+exported HTTP methods from `route.*`, and `config.matcher` from `middleware.*`.
+
+**Parallel slots** (`parallel-slot-detector.ts`): globs `**/@*/**/page.*`,
+resolves parent path, and detects a `default.*` fallback (`hasDefault`).
+
+---
+
+## 8. Component Intelligence System
+
+### Discovery (`component-analyzer.ts`)
+
+`ComponentAnalyzer` parses files with ts-morph, walks function/arrow/variable
+declarations matching PascalCase, and produces `ComponentMeta` for each component
+with canonical identity. It builds **import edges** using ts-morph module
+resolution (honoring aliases / `baseUrl` / path mappings) and **render edges**
+from JSX usage (confidence `0.95`, evidence `["symbol-resolution", "jsx-nesting"]`).
+A component is `isReusable` when imported by 2+ files. Parse failures are surfaced
+as `ParseFailure[]` and emitted as `parse-error` diagnostics.
+
+### Classification (`classifier.ts`)
+
+`classifyComponent(name, imports, jsxTags, filePath, customRules?, sourceText?)`
+assigns a `ComponentType` using, in priority order: name patterns → import
+patterns → JSX tag patterns → AST provider detection (`createContext` /
+`.Provider`) → file convention (`page`/`layout`/etc.) → fallback `component`.
+`DEFAULT_CLASSIFICATION_RULES` cover `provider`, `dialog`, `grid`, `chart`
+(e.g. dialog imports `@radix-ui`/`@headlessui`; grid imports
+`@tanstack/react-table`/`ag-grid`/`@mui/x-data-grid`; chart imports
+`recharts`/`echarts`/`d3`/`victory`/`@nivo`/`chart.js`). `customRules` are applied
+before defaults. `containsProviderPattern(src)` and `PROVIDER_AST_PATTERNS` back
+the provider heuristic.
+
+### Composite detection (`composite-detector.ts`)
+
+`CompositeDetector.detect(project, components)` returns
+`Map<string, CompositeGroup>`. **Semantic signals** (strong): static property
+assignment (`DataGrid.Header = ...`), `Object.assign(Root, {...})`, dotted JSX
+(`<DataGrid.Header/>`), module co-location. **Prefix heuristic** (fallback,
+unclaimed components only) requires ≥2 sub-components. **Confidence**: `0.95` for
+2+ evidence types, `0.9` for a single semantic signal, `0.6` for the prefix
+heuristic. `applyToComponents()` annotates `ComponentMeta` and returns the set of
+sub-component full names.
+
+### Server actions (`server-action-detector.ts`)
+
+`ServerActionDetector.detect()` finds `"use server"` directives. **Module scope**:
+file-level directive marks all exported async functions
+(`exportName = "__module__"`). **Function scope**: directive inside a specific
+async function. Components whose files contain actions get `hasServerActions = true`.
+
+---
+
+## 9. Graph Architecture
+
+The system maintains a **separated graph model** plus a unified view. Nodes are
+`GraphNode { id, label, type, meta? }`; edges are
+`GraphEdge { source, target, relationship, confidence? }` where `relationship ∈
+{imports, renders, routes-to, parent-child, reuses, owns, mounts}`.
+
+`SeparatedGraphs` (`GraphBuilder.buildSeparated()`):
+
+| Graph | Edge relationship | Meaning | Built from |
+|---|---|---|---|
+| `import` (`ImportGraph`) | `imports` | A imports B (module-level dependency) | `addImportEdges` (ts-morph resolution) |
+| `render` (`RenderGraph`) | `renders` | A renders B (JSX containment) | `addRenderEdges` (JSX) |
+| `compositeOwnership` (`CompositeOwnershipGraph`) | `owns` | B belongs to compound root A | `addCompositeOwnership` |
+| `runtimeMount` (`RuntimeMountGraph`) | `mounts` | B mounted under A (actual DOM) | runtime data (empty at static time) |
+
+Additional edges fold into the **unified** `DependencyGraph` (`build()`): route
+edges (`routes-to`, `parent-child` from `addRoutes`) and reuse edges (`reuses`
+from `addReusabilityEdges`). The unified graph is stored under
+`manifest.graph`; the separated graphs under `manifest.graphs`. Edges are deduped
+by `${source}|${target}|${relationship}`.
+
+**Why separate**: keeping `imports`, `renders`, and `owns` distinct prevents graph
+contamination — e.g. a component can be imported but never rendered, or own a
+sub-component it never directly imports. Consumers (dashboard `RouteFlowGraph`,
+verification cycle detection) select the relationship semantics they need.
+
+---
+
+## 10. Runtime Tracking System
+
+Implemented in `intelligence-runtime/src`.
+
+### `IntelligenceProvider` (`provider.tsx`)
+
+React context provider. Holds runtime telemetry in a
+`useRef<Map<string, RuntimeMeta>>` (in-memory, per provider instance). Context
+value (`IntelligenceContextValue`):
+
+- `mount(registration, route)` — increments `mountCount`, unions
+  `mountedOnRoutes`, sets `lastMountedAt`.
+- `unmount(componentId)` — increments `unmountCount`, sets `lastUnmountedAt`.
+- `recordRender(componentId, durationMs)` — updates rolling
+  `averageRenderDuration`.
+- `getRuntimeData()`, `exportRuntimeData()` (serializable
+  `Record<string, RuntimeMeta>`).
+- `getCurrentRoute()`, `setCurrentRoute(route)`.
+- `debug?` prop enables console logging. `useIntelligenceContext()` throws if used
+  outside the provider.
+
+### Hooks
+
+- `useComponentRegistration(meta)` (`use-component-registration.tsx`) — injected by
+  the compiler into client component bodies. Times render via
+  `performance.now()`, calls `mount()` once (guarded by a ref), records render
+  duration, and returns a cleanup that calls `unmount()`.
+- `useRouteTracking()` (`use-route-tracking.tsx`) — placed in the root layout.
+  Reads `window.location.pathname`, listens to `popstate`, and uses a
+  `MutationObserver` on `document.head` to catch Next.js client-side navigation
+  (URL changes without `popstate`); calls `setCurrentRoute()` on changes.
+
+### Lifecycle
+
+```
+render ─► useComponentRegistration: capture renderStart
+   ▼
+effect(mount once) ─► provider.mount(registration, currentRoute)
+   ▼
+every render ─► provider.recordRender(id, performance.now() - renderStart)
+   ▼
+unmount ─► cleanup ─► provider.unmount(id)
 ```
 
-### Build
+Runtime data populates `RuntimeMeta` and, when merged into a registry
+(`mergeRuntimeData`), the `runtimeMount` graph and `manifest.runtime`. Telemetry
+is collected in-memory; **no network/persistence transport is implemented** — it
+is exposed via `exportRuntimeData()` for the consumer to ship. There is no browser
+auto-export beyond this API. **Not enough evidence found in source code** for any
+built-in telemetry backend.
 
-```bash
-npm run build
-# Runs: tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs
+---
+
+## 11. Compiler Integration
+
+Implemented in `intelligence-compiler/src`.
+
+### `withIntelligence(nextConfig?, pluginOptions?)` (`next-plugin.ts`)
+
+Next.js 14+ plugin. `IntelligencePluginOptions`:
+
+| Option | Default | Purpose |
+|---|---|---|
+| `enabled` | `true` | Toggle pipeline run |
+| `appDir` | `"app"` | App directory override |
+| `outputDir` | `".generated/intelligence"` | Manifest output |
+| `incremental` | `true` | Incremental cache |
+| `include` | (defaults) | Custom globs |
+| `exclude` | (defaults) | Custom exclusions |
+
+At config-resolution time it calls `runIntelligencePipeline(...)` (async) before
+the build starts, supports both Webpack and Turbopack, and spreads the existing
+`nextConfig` unchanged. Pipeline failures are caught and logged via
+`console.error`.
+
+### Source transform (`transform.ts`)
+
+`transformSource`, `transformFile`, `transformProject` perform **regex-based**
+source-to-source transformation:
+
+1. Skip files already marked with `/* __INTELLIGENCE_INJECTED__ */`.
+2. Skip server components (only transform files with a top `"use client"`
+   directive).
+3. Match exported component declarations (`export function`,
+   `export default function`, `export const X = () => {}`, function expressions,
+   and `forwardRef`/`memo` wrappers).
+4. Inject, after the `"use client"` directive:
+   ```ts
+   import { useComponentRegistration } from "@i2c/intelligence/runtime";
+   /* __INTELLIGENCE_INJECTED__ */
+   ```
+5. Inject at the start of each matched component body:
+   ```ts
+   useComponentRegistration({
+     canonicalId: "path/file.tsx#ComponentName",
+     type: "component",            // inferred via classifyComponent()
+     sourceFile: "path/file.tsx",
+     exportName: "ComponentName",
+     compositeRoot: null,
+   });
+   ```
+
+Component type is inferred via `classifyComponent()` from core. Canonical IDs use
+`${relativePath}#${componentName}` with forward-slash normalization. A dry-run
+mode is supported (read-only); writes are deferred until all transforms complete.
+
+> The transform is **regex-driven**, not AST-driven — this is a deliberate
+> simplicity/perf trade-off and a known fragility surface (see Technical Debt).
+
+---
+
+## 12. Manifest Structure
+
+`IntelligenceManifest` (`intelligence-types`) is the central output:
+
+```jsonc
+{
+  "schemaVersion": "1.1.0",
+  "generatedAt": "2026-06-03T12:00:00.000Z",
+  "projectRoot": "/abs/project",
+  "summary": {
+    "screens": 0, "components": 0, "reusableComponents": 0,
+    "dialogs": 0, "grids": 0, "charts": 0, "providers": 0,
+    "layouts": 0, "pages": 0, "hooks": 0, "utils": 0,
+    "clientComponents": 0, "serverComponents": 0,
+    "avgComplexity": 0, "maxComplexity": 0,
+    "apiRoutes": 0, "middlewareCount": 0,
+    "parallelSlots": 0, "serverActions": 0
+  },
+  "routes": [ /* RouteMeta[] */ ],
+  "routeIntelligence": { "/users": { /* RouteIntelligence */ } },
+  "components": { "components/button.tsx#Button": { /* ComponentMeta */ } },
+  "componentUsage": { "components/button.tsx#Button": { "usedInRoutes": ["/"], "usageCount": 1, "type": "component", "filePath": "..." } },
+  "graph": { "nodes": [], "edges": [] },
+  "graphs": {
+    "import": { "nodes": [], "edges": [] },
+    "render": { "nodes": [], "edges": [] },
+    "compositeOwnership": { "nodes": [], "edges": [] },
+    "runtimeMount": { "nodes": [], "edges": [] }
+  },
+  "runtime": { /* Record<canonicalId, RuntimeMeta> */ },
+  "diagnostics": [ /* Diagnostic[] */ ],
+  "apiRoutes": [ /* ApiRoute[] */ ],
+  "middleware": [ /* MiddlewareMeta[] */ ],
+  "parallelSlots": [ /* ParallelSlot[] */ ],
+  "serverActions": [ /* ServerActionMeta[] */ ],
+  "derived": { /* DerivedMetrics, schemaVersion 1.1.0+ */ }
+}
 ```
 
-### Publish
+### `ComponentMeta` (selected fields)
+
+`identity` (`CanonicalIdentity`), `id`, `name`, `filePath`, `relativePath`,
+`type`, `rendering` (`client|server`), `exportType` (`default|named`), `imports`,
+`jsxChildren`, `usedInRoutes`, `usedInFiles`, `isReusable`, `isDynamicImport`,
+`line`, `column`, `isComposite`, `subComponents`, `subComponentIds`, `confidence`,
+`hasServerActions?`.
+
+### Validation
+
+`validateManifest(data)` is a shallow structural check (top-level field presence +
+types) plus `schemaVersion` semver/major matching against
+`MANIFEST_SCHEMA_VERSION` (`1.1.0`). Consumers must reject a mismatched major.
+`assertManifest()` throws on failure. The pipeline calls `validateManifest` when
+loading a cached manifest for reuse.
+
+---
+
+## 13. Output Files
+
+`OutputWriter.writeAll()` writes deterministic, key-sorted JSON (recursive key
+sort, trailing newline) into `outputDir` (default `.generated/intelligence`):
+
+| File | Contents | Source type |
+|---|---|---|
+| `manifest.json` | Complete manifest | `IntelligenceManifest` |
+| `graph.json` | Unified graph | `DependencyGraph` |
+| `graphs/import.json` | Import graph | `ImportGraph` |
+| `graphs/render.json` | Render graph | `RenderGraph` |
+| `graphs/composite-ownership.json` | Ownership graph | `CompositeOwnershipGraph` |
+| `graphs/runtime-mount.json` | Runtime mount graph | `RuntimeMountGraph` |
+| `routes.json` | Route intelligence map | `Record<string, RouteIntelligence>` |
+| `runtime.json` | Runtime metrics | `Record<string, RuntimeMeta>` |
+| `diagnostics.json` | Diagnostics | `Diagnostic[]` |
+| `derived.json` | Derived metrics (when present) | `DerivedMetrics` |
+
+Cache artifact: `${cacheDir}/intelligence-cache.json`
+(`{ version: 1, entries: { [path]: { hash, timestamp } } }`), default `cacheDir`
+`node_modules/.cache/intelligence`.
+
+---
+
+## 14. Configuration
+
+### `AnalyzerConfig` (consumer-facing)
+
+| Field | Type | Default | Required |
+|---|---|---|---|
+| `projectRoot` | `string` | `process.cwd()` | resolved automatically |
+| `include` | `string[]` | app/components/ui globs (auto from app dirs) | optional |
+| `exclude` | `string[]` | `**/*.test.*`, `**/*.spec.*`, `**/*.stories.*`, `**/__tests__/**` | optional |
+| `appDir` | `string` | auto-detected (`resolveAppDirectories`) | optional |
+| `appDirs?` | `string[]` | all detected app dirs | optional |
+| `outputDir` | `string` | `.generated/intelligence` | optional |
+| `incremental` | `boolean` | `true` | optional |
+| `cacheDir` | `string` | `node_modules/.cache/intelligence` | optional |
+| `customRules?` | `ClassificationRule[]` | — | optional (applied before defaults) |
+| `tsConfigPath?` | `string` | auto-detected | optional |
+| `bundleStatsPath?` | `string` | best-effort `.next/app-build-manifest.json` | optional |
+
+`DEFAULT_CONFIG` (pipeline.ts): `include = ["app/**/*.{tsx,ts}",
+"components/**/*.{tsx,ts}", "@ui/**/*.{tsx,ts}", "ui/**/*.{tsx,ts}"]`,
+`exclude` as above.
+
+### Config file loading (`config-loader.ts`)
+
+Probed in order (first match wins): `.intelligencerc.json`, `.intelligencerc`,
+`intelligence.config.mjs`, `intelligence.config.js`. JSON files are strictly
+parsed; `.mjs`/`.js` are imported via `file://` URL (default or named `config`
+export, must be a plain object). On merge, **array fields are replaced, not
+concatenated**; CLI/programmatic `userConfig` always wins over file values.
+
+### `ClassificationRule`
+
+`{ type: ComponentType, namePatterns: RegExp[], importPatterns: string[],
+jsxTagPatterns: string[] }`.
+
+---
+
+## 15. CLI Reference
+
+Binary: `intelligence` (`cli.ts`). Flags:
+
+| Flag | Argument | Default | Behavior |
+|---|---|---|---|
+| `--root` | `<path>` | cwd | Project root |
+| `--output` | `<dir>` | `.generated/intelligence` | Output directory |
+| `--app-dir` | `<dir>` | auto-detect | Override app directory |
+| `--no-cache` | — | cache on | Disable incremental cache |
+| `--watch` | — | off | Re-run on file changes (recursive `fs.watch`) |
+| `--watch-debounce` | `<ms>` | `150` | Coalesce change bursts |
+| `--quiet` | — | off | Suppress phase logs |
+| `--stats` | — | off | Print per-phase telemetry |
+| `--diff` | — | off | Print delta vs previous manifest |
+| `--json` | — | off | Machine-readable JSON to stdout (implies `--quiet`) |
+| `--fail-on-error` | — | off | Exit `1` if any error diagnostics |
+| `--help`, `-h` | — | — | Show help |
+
+Notes: `--json` is incompatible with `--watch` (exits `2`). In watch mode the loop
+runs until SIGINT/SIGTERM; rebuilds are debounced and serialized (edits during a
+rebuild re-trigger once). `--diff` snapshots the prior `manifest.json` before the
+run and prints added/removed/changed routes & components plus diagnostic deltas.
+
+**Examples:**
 
 ```bash
-npm publish --registry=https://artifacts-local.i2cinc.com/repository/dd-npm-private/
-# prepublishOnly runs build automatically
+intelligence --root . --stats
+intelligence --watch --watch-debounce 200
+intelligence --json --diff > report.json
+intelligence --fail-on-error
 ```
 
-### Scripts
+---
 
-| Script | Command | Notes |
+## 16. Dependency Mapping
+
+```
+intelligence-types  ──────────────►  (none internal)
+intelligence-core   ──────────────►  intelligence-types
+  analyzer/*        ──────────────►  intelligence-types
+  session/*         ──────────────►  pipeline, registry, ir, passes
+  pipeline.ts       ──────────────►  analyzer/*, registry, cache, config-loader,
+                                     derived-metrics, output-writer, session
+intelligence-compiler ────────────►  intelligence-core (classifyComponent,
+                                     runIntelligencePipeline), runtime (injected
+                                     import target), intelligence-types
+intelligence-runtime  ────────────►  intelligence-types
+intelligence-dashboard ───────────►  intelligence-types, @xyflow/react
+```
+
+External runtime deps: `ts-morph` (analyzer), `fast-glob` (detectors/analyzer),
+`@xyflow/react` (dashboard). Peers: `next`, `react`, `react-dom`.
+
+**Forbidden directions**: `types` must not import from any other internal module;
+`runtime`/`dashboard` must not import from `core`/`compiler`; `core` must not
+import from `compiler`/`runtime`/`dashboard`.
+
+---
+
+## 17. Performance Optimizations
+
+- **Incremental cache** (`IncrementalCache`): SHA-256 content hashing classifies
+  files into added/changed/removed/unchanged; a clean run with a valid prior
+  manifest skips all 8 phases.
+- **Partial route reuse**: routes whose `dependencyFiles` are untouched by the
+  change frontier reuse prior `RouteIntelligence`, skipping Phase 5 AST traversal.
+- **Traversal cache** (`InMemoryTraversalCache`): memoizes per-file dependency
+  analysis, collapsing `O(routes × transitive-imports)` toward
+  `O(transitive-imports)`. Hit/miss stats reported in telemetry.
+- **Symbol resolution cache** (`SymbolResolver`): per-file/per-name memoization of
+  JSX/import resolution.
+- **Single ts-morph project**: built once in Phase 1 and reused by composite,
+  server-action, route-intelligence, and traversal stages.
+- **Deterministic, parallel output writes**: `OutputWriter` writes files via
+  `Promise.all` with recursive key sorting for stable diffs.
+- **Watch debounce**: coalesces editor save bursts into a single rebuild.
+
+---
+
+## 18. Error Handling
+
+- **Parse failures**: `ComponentAnalyzer` collects `ParseFailure[]`; the pipeline
+  converts them to `parse-error` warning diagnostics with actionable suggestions
+  and continues (skips the file).
+- **Bundle stats**: best-effort. A missing `.next/app-build-manifest.json` is
+  silently skipped; an explicit unreadable `bundleStatsPath` logs a warning (not
+  fatal in the catch path).
+- **Cached manifest reuse**: guarded by `validateManifest`; invalid/missing
+  manifests fall back to a full run.
+- **CLI**: one-shot mode logs the error stack and `process.exit(1)`; watch mode
+  catches rebuild failures and keeps watching. `--fail-on-error` exits `1` on
+  error diagnostics; `--json + --watch` exits `2`.
+- **Session FSM**: `SessionState.transitionTo()` throws on illegal transitions;
+  `PassManager` throws `PassScheduleError` on cycles/unknown dependencies.
+- **Runtime**: `useIntelligenceContext()` throws when used outside the provider.
+
+---
+
+## 19. Diagnostics & Verification
+
+`VerificationPass.verify()` runs after graph construction and returns
+`Diagnostic[]`. Categories (`DiagnosticCategory`) and severities:
+
+| Category | Severity | Meaning |
 |---|---|---|
-| `build` | `tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs` | Compiles all modules + fixes ESM imports |
-| `prepublishOnly` | `npm run build` | Auto-runs before publish |
-| `lint` | `echo "No lint step configured"` | Not implemented |
-| `test` | `echo "No tests configured"` | Not implemented |
+| `orphan-node` | info | Component unreachable from any route (BFS reachability) |
+| `unresolved-jsx` | warning | JSX tag maps to no known component |
+| `unresolved-import` | (warning) | Import target not resolved |
+| `duplicate-canonical-id` | error | Two components share a canonical ID |
+| `invalid-route-ownership` | warning | Route points to a non-existent page file |
+| `runtime-static-mismatch` | warning | Runtime data without a matching static component |
+| `impossible-render-tree` | warning | Render cycle (component renders itself) |
+| `circular-ownership` | error | Composite ownership cycle (DFS in-stack) |
+| `duplicate-composite-registration` | error | Sub-component claimed by multiple roots |
+| `low-confidence-composite` | warning/info | Composite confidence below threshold |
+| `parse-error` | warning | File failed to parse (emitted in Phase 1) |
 
-### Testing Workflow
+Confidence thresholds: `WARN_THRESHOLD = 0.7` (prefix-heuristic only),
+`INFO_THRESHOLD = 0.85` (single semantic signal). Diagnostics carry
+`message`, optional `file`, `nodeId`, `relatedNodes`, `context`, `suggestion`,
+`docUrl`.
 
-Not enough evidence found — no test files, no test framework configured.
-
-### Release Flow
-
-Manual `npm publish` to private Artifactory registry. Version is bumped manually in `package.json`.
-
----
-
-## 12. Known Problems / Technical Debt
-
-### No Tests
-
-No test suite exists. All scripts echo "No tests configured". This is the most critical gap.
-
-### No Linting
-
-No ESLint or Prettier configuration. Code style is enforced only by convention.
-
-### Deep Relative Import Paths
-
-Cross-module imports use fragile relative paths like `../../intelligence-core/src/analyzer/classifier`. Any folder restructuring would break these. Consider path aliases or workspace references.
-
-### Unused `inferComponentType` in Transform
-
-`transform.ts` calls `classifyComponent` from the core analyzer to infer component types, creating a build-time dependency on the analysis engine for what is a simple heuristic task.
-
-### Registry Singleton Pattern
-
-`IntelligenceRegistry` uses a classic singleton. This makes testing harder and prevents parallel analysis of multiple projects in the same process.
-
-### No Input Validation at CLI Boundary
-
-`cli.ts` performs minimal argument parsing with no validation, no help text, and no error messages for invalid flags.
-
-### Pipeline Error Swallowing
-
-`withIntelligence()` catches all pipeline errors and logs them, but silently continues. This could mask critical analysis failures.
-
-### Dashboard Inline Styles
-
-The entire dashboard UI uses inline styles. This makes theming, responsive design, and style customization difficult.
-
-### Incomplete `IncrementalCache` Integration
-
-The cache is loaded and saved in the pipeline, but `hasChanged()` and `update()` are never called during actual component analysis. The cache infrastructure exists but isn't wired into the analyzer loop.
-
-### Sub-module `package.json` Files Are Dead Weight
-
-Each module has its own `package.json` with scripts like `build: echo "No build step required"`. These serve no functional purpose since everything is built from the root.
-
-### TODO/FIXME Hotspots
-
-Not enough evidence found — no TODO or FIXME comments detected in the source.
+Diagnostics flow into `manifest.diagnostics`, `diagnostics.json`, telemetry
+counts, the dashboard, and `--fail-on-error`.
 
 ---
 
-## 13. AI Guidance Section
+## 20. AI Guidance
 
-### Architectural Rules AI Must Follow
+### What the package currently does
 
-1. **Canonical IDs are sacred.** Always use `relativePath#exportName` format. Never invent alternative ID schemes. Use `buildCanonicalId()` from `intelligence-types`.
+- Statically analyzes Next.js App Router projects via ts-morph and emits a
+  validated `IntelligenceManifest` plus separated graphs, route intelligence,
+  diagnostics, and derived metrics.
+- Detects routes, API routes, middleware, parallel slots, server actions,
+  components, composites, hooks, utils, providers, search/dynamic params.
+- Transforms `"use client"` components to self-register at runtime, and collects
+  mount/render telemetry in the browser.
+- Renders a dashboard (route tree, dependency hierarchy, insights, command
+  palette, ReactFlow graph).
 
-2. **Dependency direction is strict.** Types ← Core ← {Compiler, Runtime} ← Dashboard. Never add imports that violate this layering.
+### What it generates
 
-3. **Separated graphs must stay separated.** Import, Render, Ownership, and Mount graphs are semantically distinct. Never merge edge types or conflate relationship meanings.
+The output files in §13 — `manifest.json`, `graph.json`, `graphs/*.json`,
+`routes.json`, `runtime.json`, `diagnostics.json`, `derived.json` — all
+deterministic and key-sorted.
 
-4. **`"use client"` is meaningful.** The runtime hooks REQUIRE the `"use client"` directive. Server components CANNOT use hooks. The analyzer correctly distinguishes these.
+### What it tracks (runtime)
 
-5. **All component classification goes through `classifyComponent()`.** Do not create alternative classification paths. Extend via `ClassificationRule[]` if needed.
+Per component: `mountCount`, `unmountCount`, `renderCount`, `lastMountedAt`,
+`lastUnmountedAt`, `mountedOnRoutes`, `averageRenderDuration`.
 
-6. **The pipeline is sequential (Phases 1–8).** Each phase depends on prior phase output. Do not reorder or parallelize phases.
+### What it analyzes / exposes
 
-### Things AI Must NOT Change
+See §4 (public API) and §12 (manifest). Canonical identity (`relativePath#export`)
+is the universal key across all subsystems.
 
-- The `CanonicalIdentity` interface or `buildCanonicalId()` function — downstream systems depend on exact format
-- The `IntelligenceManifest` interface — consumers parse this JSON contract
-- The exports map in root `package.json` — consumer import paths depend on it
-- The `"use client"` directives in runtime and dashboard files
-- The 8-phase pipeline order in `pipeline.ts`
-- The `ComponentType` union — adding types is OK, removing or renaming breaks classification
+### How AI should consume outputs
 
-### Dangerous Areas
+1. Read `manifest.json`; verify `schemaVersion` major equals `1`.
+2. Use `routeIntelligence[path]` for per-route dependency trees and params.
+3. Use `components[canonicalId]` for component facts; `componentUsage` for reuse.
+4. Use `graphs.*` for relationship-specific reasoning (don't conflate
+   `imports`/`renders`/`owns`).
+5. Use `derived` for hotspots, dead code, reusability, and confidence
+   distribution.
+6. Treat missing optional fields (`derived`, `dependencyFiles`, `hasServerActions`)
+   as "unknown".
 
-- **`transform.ts`**: Modifies user source code. Regex-based injection is fragile. Changes here can corrupt user files.
-- **`fix-esm-imports.mjs`**: Post-build script modifies compiled output. A bug here breaks all imports in the published package.
-- **`registry.ts` singleton**: `getInstance()` shares state globally. Clearing state (`clear()`) must happen before each pipeline run.
-- **`next-plugin.ts`**: Runs during Next.js config resolution. Errors here can prevent the app from starting.
+### Critical abstractions
 
-### Safe Extension Points
+- **Canonical identity** (`buildCanonicalId` / `parseCanonicalId`,
+  `CanonicalIdentity`) — single source of truth for component identity.
+- **Separated graph model** — semantic separation of relationships.
+- **`AnalysisSession` + `SessionState` FSM** — lifecycle ordering.
+- **`PassManager`** — deterministic scheduling (SHA-256 order keys).
 
-- **New `ClassificationRule` entries**: Add to `DEFAULT_CLASSIFICATION_RULES` array in `classifier.ts`
-- **New `ComponentType` values**: Add to the union in `intelligence-types/src/index.ts`
-- **New graph relationship types**: Add to `GraphEdge.relationship` union and handle in `GraphBuilder`
-- **New verification checks**: Add methods to `VerificationPass` class
-- **New diagnostic categories**: Add to `DiagnosticCategory` union
-- **Dashboard views**: Add new components alongside existing dashboard modules
-- **CLI flags**: Extend `parseArgs()` in `cli.ts`
+### Invariants
 
-### Existing Abstractions to Reuse
+- Canonical ID format is `relativePath#exportName` (POSIX slashes).
+- Manifest output is deterministic (key-sorted) — preserve this.
+- `MANIFEST_SCHEMA_VERSION` must bump on any manifest shape change; major bumps
+  are breaking.
+- Phase ordering 1→8 is fixed; later phases depend on earlier outputs.
+- Summary `apiRoutes`/`middlewareCount`/`parallelSlots`/`serverActions` are
+  patched by the pipeline (the registry cannot know them).
 
-| Abstraction | Location | When to Use |
-|---|---|---|
-| `buildCanonicalId()` | `types/src/index.ts` | Generating any component identifier |
-| `classifyComponent()` | `core/src/analyzer/classifier.ts` | Determining component type |
-| `isBuiltinHook()` | `types/src/index.ts` | Filtering React/Next.js built-in hooks |
-| `RecursiveTraverser` | `core/src/analyzer/recursive-traverser.ts` | Walking import trees |
-| `SymbolResolver` | `core/src/analyzer/symbol-resolver.ts` | Resolving identifiers to canonical IDs |
-| `OutputWriter` | `core/src/output-writer.ts` | Writing deterministic JSON files |
-| `IncrementalCache` | `core/src/cache.ts` | File-level change detection |
+### Dangerous files
 
-### Coding Standards AI Must Follow
-
-- Use **ts-morph** for any AST work — do not use raw TypeScript compiler API
-- Use **canonical IDs** everywhere — never identify components by name alone
-- Keep **classification in `classifier.ts`** — do not scatter classification logic
-- Write **deterministic output** — sort keys, sort arrays, use `deterministicReplacer()`
-- Use **`relative()` + `.replace(/\\/g, "/")`** for all path normalization
-- Add **confidence metadata** (`ConfidenceMeta`) to all inferred relationships
-- Emit **structured diagnostics** instead of `console.warn` for analysis issues
+- `pipeline.ts` — central orchestrator; changing phase order/contract breaks
+  everything downstream.
+- `registry.ts` — singleton; `exportManifest()` shape is the public contract.
+- `intelligence-types/src/index.ts` — every consumer depends on it; changes here
+  ripple project-wide and may require a schema bump.
+- `transform.ts` — regex-based code injection into user source; mistakes corrupt
+  user files.
+- `output-writer.ts` — determinism guarantees; breaking key-sort destabilizes
+  diffs.
 
 ---
 
-## 14. Smart Summaries
+## 21. Extension Points
 
-### Most Critical Files
+Safe places to extend without violating invariants:
 
-| File | Why It Matters |
-|---|---|
-| `tools/intelligence-types/src/index.ts` | Every interface, type, and utility. The contract layer. |
-| `tools/intelligence-core/src/pipeline.ts` | The 8-phase orchestrator. Entry point for all analysis. |
-| `tools/intelligence-core/src/analyzer/component-analyzer.ts` | AST component extraction engine. Largest analyzer file. |
-| `tools/intelligence-core/src/registry.ts` | Singleton data aggregator + manifest export. |
-| `tools/intelligence-core/src/analyzer/graph-builder.ts` | Builds all 4 separated graphs. |
-| `tools/intelligence-compiler/src/next-plugin.ts` | Integration point with consumer Next.js apps. |
+- **Classification**: add `ClassificationRule[]` via `AnalyzerConfig.customRules`
+  (applied before defaults) — no code change required.
+- **Detectors**: add new analyzer modules under `analyzer/` and wire them into a
+  pipeline phase; export through `analyzer/index.ts`.
+- **Passes**: register new `AnalysisPass` implementations with `PassManager`
+  (declare `stage` + `dependsOn`).
+- **Diagnostics**: add a `DiagnosticCategory` in types and emit from
+  `VerificationPass`.
+- **Derived metrics**: extend `deriveMetrics` (bump `DERIVED_METRICS_VERSION`).
+- **Outputs**: add `OutputWriter` methods (keep deterministic key-sorting).
+- **Dashboard**: add components consuming the manifest/derived contracts.
+- **Config files**: `.intelligencerc*` / `intelligence.config.*` for project-level
+  configuration.
 
-### Most Important Entry Points
+When adding manifest fields: make them optional for backward compatibility or bump
+`MANIFEST_SCHEMA_VERSION` (major for breaking).
 
-| Entry Point | How It's Reached |
-|---|---|
-| `withIntelligence()` | Called from consumer's `next.config.ts` |
-| `runIntelligencePipeline()` | Called by CLI and by `withIntelligence()` |
-| `IntelligenceProvider` | Wrapped around consumer's root layout |
-| `IntelligenceDashboard` | Mounted in a dev-only page |
-| `intelligence` CLI | `npx intelligence` or `node dist/tools/intelligence-core/src/cli.js` |
+---
 
-### Most Reused Utilities
+## 22. Breaking Changes Since Previous Version
 
-| Utility | Used By |
-|---|---|
-| `buildCanonicalId()` | component-analyzer, recursive-traverser, canonicalizer, composite-detector, symbol-resolver, transform |
-| `isBuiltinHook()` | recursive-traverser, route-intelligence-builder |
-| `classifyComponent()` | component-analyzer, transform |
-| `relative() + path normalization` | Every file in the analyzer directory |
+The previous root `context.md` documented **v0.0.5**; there is no committed
+CHANGELOG in the analyzed source. A precise file-by-file diff against 0.0.5 is not
+reconstructable from the current tree, so this section reports what the **current
+0.1.2 implementation** contains that the 0.0.5 document did not describe. Items not
+verifiable against the old code are marked accordingly.
 
-### Most Central Abstractions
+**Present in 0.1.2 (new or materially expanded vs the 0.0.5 doc):**
 
-| Abstraction | Centrality |
-|---|---|
-| `ComponentMeta` | Used by every phase of the pipeline, the registry, graphs, dashboard, and runtime |
-| `CanonicalIdentity` | Foundation for all identity resolution — the single source of truth |
-| `IntelligenceManifest` | The complete output contract — consumed by dashboard, external tools, and AI agents |
-| `SeparatedGraphs` | Structured graph output — consumed by visualization and analysis |
-| `RouteIntelligence` | Per-route dependency analysis — the primary query surface |
+- **Manifest schema `1.1.0`** with `MANIFEST_SCHEMA_VERSION` / `assertManifest` /
+  `validateManifest` major-version gating.
+- **Derived metrics** subsystem (`derived-metrics.ts`, `DerivedMetrics`,
+  `derived.json`, `loadBundleStats`, `bundleStatsPath`) — version `1.0.0`.
+- **Session/IR/passes runtime** (`AnalysisSession`, `SessionState`,
+  `InMemoryIRStore`, `PassManager`, `RegistryAdapter`, `InMemoryDiagnosticsStore`)
+  per RFC-001.
+- **Incremental partial route reuse** via `RouteIntelligence.dependencyFiles`.
+- **Telemetry** (`PhaseTelemetry`, `PipelineTelemetry`) + CLI `--stats`/`--json`.
+- **Manifest diffing** (`diffManifests`, `formatManifestDiff`) + CLI `--diff`.
+- **Watch mode** (`--watch`, `--watch-debounce`).
+- **API routes, middleware, parallel slots, server actions** detection with
+  manifest collections and summary counts.
+- **Separated graphs** (`import`/`render`/`compositeOwnership`/`runtimeMount`)
+  alongside the unified graph.
+- **`BuildOutputAnalyzer`** for `.next/` build-output analysis (exported,
+  pipeline-optional).
+- **Config-file loading** (`.intelligencerc*`, `intelligence.config.*`).
+- **Dashboard** expansions: `CommandPalette`, `InsightsPanel`, `RouteFlowGraph`
+  modes, theme tokens.
+
+**Build behavior**: ESM with post-build `.js` extension fixing; testing via
+`node --test` over `tests/**/*.test.mjs`.
+
+> Whether each of the above is strictly *new* in 0.1.2 vs an earlier 0.1.x cannot
+> be determined from the current tree — **not enough evidence found in source
+> code** for an exact per-version breakdown.
+
+---
+
+## 23. Technical Debt
+
+Findings supported by source/structure:
+
+- **Regex-based source transform** (`transform.ts`): brittle vs AST transforms;
+  unusual component declaration styles (HOCs, nested exports, decorators) may be
+  missed or mis-injected. Highest correctness risk because it writes user files.
+- **Registry summary patching**: `apiRoutes`, `middlewareCount`, `parallelSlots`,
+  `serverActions` are set to 0 by the registry and mutated by the pipeline after
+  export — a coupling that requires the pipeline to remember to patch them.
+- **Sequential pass execution**: `PassManager` notes RFC-001 §9.1 worker-pool
+  parallelization as future work; current execution is sequential.
+- **`BuildOutputAnalyzer` not wired**: exported and capable, but the main pipeline
+  does not invoke it; bundle stats currently come from `loadBundleStats`.
+- **Runtime mount graph empty at static time**: `runtimeMount` graph is populated
+  only when runtime data is merged; static manifests carry empty mount edges.
+- **No runtime telemetry transport**: runtime hooks collect in-memory data only;
+  shipping/persisting it is left entirely to the consumer.
+- **Singleton registry**: `IntelligenceRegistry.getInstance()` global state can
+  complicate concurrent/multi-project runs in one process (mitigated by
+  `RegistryAdapter` injection and `resetInstance()`).
+- **No lint step** configured (`echo "No lint step configured"`).
+- **No explicit `TODO`/`FIXME` markers** were found in the analyzed source.
+
+---
+
+## 24. Smart Summary
+
+`@i2c/intelligence` v0.1.2 is a layered Next.js intelligence toolkit:
+`types` (contracts + manifest validation) → `core` (the 8-phase, ts-morph-based
+analysis engine with an `AnalysisSession`/`PassManager`/IR runtime, incremental
+caching, derived metrics, diffing, and a feature-rich CLI) → `compiler`
+(regex source transform + `withIntelligence` Next plugin) → `runtime` (React
+provider + lifecycle hooks) → `dashboard` (ReactFlow visualization, insights,
+command palette).
+
+The system's spine is **canonical identity** (`relativePath#exportName`) and a
+**separated graph model** that keeps `imports`, `renders`, `owns`, and `mounts`
+semantically distinct. It emits a deterministic, schema-versioned
+`IntelligenceManifest` (`1.1.0`) plus separated graphs, route intelligence,
+diagnostics, and derived metrics — all key-sorted for stable diffs.
+
+For an AI agent extending the package: respect the layer dependency direction,
+preserve output determinism, keep canonical identity stable, treat
+`intelligence-types` and `pipeline.ts` as high-blast-radius surfaces, extend via
+`customRules`, new analyzer modules, `AnalysisPass` registration, new diagnostic
+categories, or derived metrics — and bump the appropriate schema version whenever
+the manifest or derived-metrics shape changes.
+
+---
+
+# AI Development Rules
+
+**Architectural invariants (never break):**
+
+1. Canonical ID format is `relativePath#exportName`, POSIX slashes, produced via
+   `buildCanonicalId`. Never invent ad-hoc identity schemes.
+2. Manifest output must remain deterministic (recursive key-sort, trailing
+   newline). Never write unsorted JSON.
+3. `MANIFEST_SCHEMA_VERSION` must bump on any manifest shape change
+   (`DERIVED_METRICS_VERSION` for derived shape). Major bumps are breaking.
+4. Pipeline phase order (1→8) is fixed; later phases consume earlier outputs.
+5. Keep the four graph relationships (`imports`/`renders`/`owns`/`mounts`)
+   separate — never merge their semantics.
+6. `intelligence-types` must not import any other internal module.
+
+**Things AI must never change without explicit approval:**
+
+- The exports map / subpath contracts in `package.json`.
+- The `IntelligenceManifest` field contract without a schema bump.
+- The `useComponentRegistration` injection format in `transform.ts`.
+- Determinism guarantees in `output-writer.ts`.
+
+**Safe extension points:** see §21 (custom rules, new analyzers, new passes, new
+diagnostics, new derived metrics, new outputs, dashboard components).
+
+**Existing abstractions to reuse:** `buildCanonicalId`/`parseCanonicalId`,
+`GraphBuilder`, `RecursiveTraverser` + `InMemoryTraversalCache`, `SymbolResolver`,
+`Canonicalizer`, `VerificationPass`, `IncrementalCache`, `OutputWriter`,
+`PassManager`, `Logger`.
+
+**Dependency rules:** `types ← core ← compiler`; `runtime`/`dashboard ← types`
+only. Never introduce `core → compiler/runtime/dashboard` edges.
+
+**Naming conventions (inferred):** PascalCase classes/components/types;
+`detectX`/`buildX`/`resolveX` function verbs; canonical `relativePath#export` IDs;
+`kebab-case.ts` filenames; barrel `index.ts` per module.
+
+**Coding standards (inferred):** strict TypeScript ESM with explicit return types
+on public APIs; pure/deterministic functions where possible; safe degradation on
+missing/partial data (collect-and-continue rather than throw); diagnostics over
+exceptions for analysis-level issues; thorough JSDoc on exported contracts.
+
+---
+
+# What's New In v0.1.2
+
+The current tree contains no CHANGELOG and the previous `context.md` targeted
+**0.0.5**, so an exact version-delta cannot be fully reconstructed from source.
+The following capabilities are **present in the 0.1.2 implementation** (see §22 for
+the caveat about exact introduction version):
+
+- Schema-versioned manifest (`1.1.0`) with `validateManifest`/`assertManifest`.
+- Derived metrics (`derived.json`, reusability, hotness, dead code, confidence
+  histogram, bundle-risk) and optional bundle-stats merge.
+- RFC-001 session runtime: `AnalysisSession`, `SessionState` FSM,
+  `InMemoryIRStore`, `PassManager` with deterministic ordering.
+- Incremental cache with full short-circuit and per-route partial reuse.
+- Telemetry + CLI `--stats`, `--json`, `--diff`, `--watch`/`--watch-debounce`,
+  `--fail-on-error`.
+- API routes, middleware, parallel slots, and server-action detection.
+- Separated graph system + unified graph.
+- Config file loading (`.intelligencerc*` / `intelligence.config.*`).
+- Expanded dashboard: command palette, insights panel, multi-mode ReactFlow graph,
+  theme tokens.
+
+**Breaking changes**: cannot be enumerated against 0.0.5 from the available source
+— **not enough evidence found in source code**. Consumers should rely on
+`MANIFEST_SCHEMA_VERSION` major (`1`) for compatibility gating.

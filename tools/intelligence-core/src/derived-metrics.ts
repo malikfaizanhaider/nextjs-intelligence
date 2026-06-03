@@ -2,9 +2,11 @@ import { promises as fs } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import type {
   BundleStats,
+  BundleBudget,
   ComponentDerivedMetrics,
   ConfidenceHistogram,
   DerivedMetrics,
+  Diagnostic,
   IntelligenceManifest,
   RouteBundleStats,
   RouteDerivedMetrics,
@@ -80,6 +82,80 @@ export function deriveMetrics(
   }
 
   return derived;
+}
+
+/**
+ * Pure, deterministic derivation of bundle-budget diagnostics from bundle
+ * stats. Returns an empty array unless at least one budget threshold is set
+ * AND a route exceeds it — so default (budget-free) runs stay diagnostic-free.
+ *
+ * No I/O. Routes are evaluated in sorted path order so the emitted diagnostic
+ * array is byte-stable across runs and platforms.
+ */
+export function deriveBundleDiagnostics(
+  bundleStats: BundleStats,
+  budget: BundleBudget
+): Diagnostic[] {
+  const { maxRouteJsBytes, maxRouteCssBytes, maxFirstLoadJsBytes } = budget;
+  const hasBudget =
+    typeof maxRouteJsBytes === "number" ||
+    typeof maxRouteCssBytes === "number" ||
+    typeof maxFirstLoadJsBytes === "number";
+  if (!hasBudget) return [];
+
+  const diagnostics: Diagnostic[] = [];
+  const paths = Object.keys(bundleStats.routes).sort((a, b) => a.localeCompare(b));
+
+  for (const path of paths) {
+    const route = bundleStats.routes[path];
+
+    if (typeof maxRouteJsBytes === "number" && route.jsBytes > maxRouteJsBytes) {
+      diagnostics.push({
+        category: "oversized-route",
+        severity: "warning",
+        message: `Route "${path}" ships ${route.jsBytes} JS bytes, exceeding the budget of ${maxRouteJsBytes}.`,
+        nodeId: `route::${path}`,
+        context: { path, jsBytes: route.jsBytes, budget: maxRouteJsBytes, metric: "jsBytes" },
+        suggestion:
+          "Code-split heavy dependencies with next/dynamic or move logic to a server component to reduce the route's JavaScript payload.",
+      });
+    }
+
+    if (
+      typeof maxFirstLoadJsBytes === "number" &&
+      typeof route.firstLoadJs === "number" &&
+      route.firstLoadJs > maxFirstLoadJsBytes
+    ) {
+      diagnostics.push({
+        category: "oversized-route",
+        severity: "warning",
+        message: `Route "${path}" has a first-load JS of ${route.firstLoadJs} bytes, exceeding the budget of ${maxFirstLoadJsBytes}.`,
+        nodeId: `route::${path}`,
+        context: {
+          path,
+          firstLoadJs: route.firstLoadJs,
+          budget: maxFirstLoadJsBytes,
+          metric: "firstLoadJs",
+        },
+        suggestion:
+          "Reduce shared first-load chunks by lazy-loading non-critical providers and trimming the route's eager import graph.",
+      });
+    }
+
+    if (typeof maxRouteCssBytes === "number" && route.cssBytes > maxRouteCssBytes) {
+      diagnostics.push({
+        category: "oversized-route",
+        severity: "info",
+        message: `Route "${path}" ships ${route.cssBytes} CSS bytes, exceeding the budget of ${maxRouteCssBytes}.`,
+        nodeId: `route::${path}`,
+        context: { path, cssBytes: route.cssBytes, budget: maxRouteCssBytes, metric: "cssBytes" },
+        suggestion:
+          "Audit global stylesheets and prefer scoped CSS modules to shrink the route's CSS payload.",
+      });
+    }
+  }
+
+  return diagnostics;
 }
 
 // ─── Component metrics ──────────────────────────────────────

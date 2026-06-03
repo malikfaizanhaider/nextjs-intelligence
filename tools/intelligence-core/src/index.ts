@@ -13,7 +13,7 @@ export { OutputWriter } from "./output-writer";
 export { IncrementalCache } from "./cache";
 export { diffManifests, formatManifestDiff } from "./manifest-diff";
 export type { ManifestDiff } from "./manifest-diff";
-export { deriveMetrics, loadBundleStats } from "./derived-metrics";
+export { deriveMetrics, deriveBundleDiagnostics, loadBundleStats } from "./derived-metrics";
 export {
   ComponentAnalyzer,
   detectRoutes,
