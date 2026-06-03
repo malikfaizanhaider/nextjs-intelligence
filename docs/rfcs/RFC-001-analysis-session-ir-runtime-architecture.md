@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Authors:** Intelligence Core Team
-- **Last Updated:** 2026-05-25
+- **Last Updated:** 2026-06-03
 - **Target Version:** `@i2c/intelligence` 0.1.x foundation
 
 ## 1) Goals
@@ -16,13 +16,14 @@ This subsystem defines the production runtime boundary for static analysis execu
 5. Enables safe worker parallelism without cross-session mutable sharing.
 6. Defines stable API boundaries for cache hydration, diagnostics emission, and artifact output.
 7. Supports very large Next.js monorepos through bounded memory retention and cold IR eviction.
+8. Emits query-optimized, versioned data views that dashboard and AI consumers can trust without reinterpreting raw IR internals.
 
 ## 2) Non-Goals
 
 This subsystem intentionally does **not** solve:
 
 1. Next.js plugin wiring (`withIntelligence`) or compiler transform injection behavior.
-2. UI/dashboard rendering, runtime mount telemetry ingestion, or graph visualization.
+2. UI/dashboard rendering, runtime mount telemetry ingestion, or graph visualization implementation details. The runtime only defines stable data products those layers consume.
 3. Domain-specific pass semantics (e.g., route heuristics quality tuning).
 4. Distributed multi-host execution scheduling.
 5. Remote cache protocol specification (only integration points are defined).
@@ -114,13 +115,13 @@ stateDiagram-v2
 
 ## 6) IR Architecture
 
-## 6.1 IR tiers
+### 6.1 IR tiers
 
 1. **AST IR**: language-faithful syntax tree wrappers + file/module boundaries.
 2. **Semantic IR**: resolved symbols, component/route entities, edges, traits.
 3. **Graph IR**: normalized multi-graph projections (import/render/ownership/runtime).
 
-## 6.2 Provenance model
+### 6.2 Provenance model
 
 Every IR entity includes:
 
@@ -128,7 +129,7 @@ Every IR entity includes:
 - `derivation`: pass ID + input snapshot IDs + timestamp logical tick.
 - `lineage`: parent entity IDs (if transformed/merged).
 
-## 6.3 Confidence metadata
+### 6.3 Confidence metadata
 
 Entities and edges carry:
 
@@ -138,13 +139,13 @@ Entities and edges carry:
 
 Confidence metadata is immutable post-commit; updates require a new derived entity version.
 
-## 6.4 Mutability and ownership rules
+### 6.4 Mutability and ownership rules
 
 - Passes mutate only **ephemeral builder buffers** obtained from `IRStore.beginWrite(passId)`.
 - Commit operation seals buffer into immutable snapshot with new `snapshotId`.
 - Direct mutation of committed snapshots throws `ImmutableIRViolationError`.
 
-## 6.5 Serialization behavior
+### 6.5 Serialization behavior
 
 - Each snapshot serializes to canonical JSON (stable key order, stable arrays, UTF-8, LF).
 - Binary sidecar optional for large indexes (`.irb`), keyed by content hash.
@@ -315,6 +316,32 @@ export interface SessionArtifacts {
   readonly manifestHash: string;
   readonly files: readonly EmittedArtifact[];
   readonly snapshotRefs: readonly SnapshotRef[];
+  readonly dashboard?: DashboardArtifactManifest;
+}
+
+export interface DashboardArtifactManifest {
+  readonly schemaVersion: string;
+  readonly sourceManifestHash: string;
+  readonly generatedFromSnapshotRefs: readonly SnapshotRef[];
+  readonly artifacts: readonly DashboardArtifactRef[];
+  readonly compatibility: {
+    readonly minDashboardVersion: string;
+    readonly features: readonly string[];
+  };
+}
+
+export interface DashboardArtifactRef {
+  readonly kind:
+    | 'dashboard-index'
+    | 'routes'
+    | 'components'
+    | 'graph-shard'
+    | 'diagnostics'
+    | 'metrics'
+    | 'diff';
+  readonly path: string;
+  readonly hash: string;
+  readonly bytes: number;
 }
 
 export interface AnalysisSession {
@@ -355,7 +382,97 @@ export interface DiagnosticsStore {
 }
 ```
 
-## 14) Migration Plan
+
+## 14) Dashboard and Data Refinement Requirements
+
+The session runtime should not own dashboard rendering, but it should emit data that makes the dashboard accurate, fast, explainable, and useful for engineering decisions. These requirements tighten the boundary between raw IR snapshots and UI-facing intelligence products.
+
+### 14.1 Dashboard-ready artifact set
+
+In addition to raw canonical IR snapshots, `emit` SHOULD produce a compact dashboard artifact family:
+
+| Artifact | Purpose | Primary consumer |
+|---|---|---|
+| `manifest.json` | Run metadata, toolchain versions, schema versions, artifact hashes | CLI, dashboard, AI agents |
+| `dashboard-index.json` | Denormalized route/component/search indexes for fast UI boot | Dashboard shell |
+| `routes.json` | Route cards, segment metadata, params, render mode, ownership | Route explorer |
+| `components.json` | Component catalog, reuse score, owners, render environment, imported hooks | Component explorer |
+| `graphs/*.json` | Import, render, ownership, runtime, and risk overlays | Graph views |
+| `diagnostics.json` | Stable diagnostics with source spans, confidence, remediation hints | Health and issue panels |
+| `metrics.json` | Pass timing, cache hit rate, IR sizes, memory budget, graph complexity | Run overview |
+| `diff.json` | Previous-run deltas for changed routes, components, edges, diagnostics | Review mode / CI |
+
+Raw IR remains the source of truth. Dashboard artifacts are derived, schema-versioned projections optimized for reads and can be regenerated from the same session snapshots.
+
+### 14.2 Dashboard view-model contracts
+
+Dashboard artifacts SHOULD be shaped around user workflows rather than raw compiler structures:
+
+1. **Run overview:** total routes/components/edges, fatal warnings, cache hit rate, analysis duration, memory high-water mark, and artifact digest.
+2. **Route explorer:** route tree, route group/parallel segment annotations, dynamic params, layouts/templates/error boundaries, route-specific components, and unresolved dependencies.
+3. **Component explorer:** component reuse, route reachability, import fan-in/fan-out, server/client boundary, hook usage, ownership package, and risk score.
+4. **Graph explorer:** layered graph modes (`import`, `render`, `ownership`, `runtime-mount`) with edge filtering by confidence, kind, route, package, and changed-since-baseline.
+5. **Health dashboard:** deterministic diagnostics grouped by severity, pass, route, owner, and suggested next action.
+6. **Runtime overlay:** optional mount/render telemetry joined to static graph nodes through stable component IDs, with stale telemetry clearly marked.
+7. **Diff mode:** changed routes/components/edges/diagnostics between two manifests, suitable for pull request review.
+
+### 14.3 Data quality improvements
+
+To make the dashboard and AI-consumable data more trustworthy, the runtime SHOULD add:
+
+- **Schema validation gates:** validate emitted dashboard artifacts against JSON Schema before writing final files.
+- **Stable node identity map:** publish a `nodeId -> latest entity version` index so UI bookmarks, diffs, and telemetry joins survive incremental runs.
+- **Confidence rollups:** compute route-level and component-level confidence summaries from underlying entity/edge confidence.
+- **Edge taxonomy:** distinguish `imports`, `renders`, `owns`, `usesHook`, `usesParam`, `loadsData`, `dynamicImport`, and `runtimeMount` edge kinds instead of overloading generic graph edges.
+- **Risk scoring:** derive explainable scores for high fan-in components, deep render trees, server/client boundary crossings, dynamic route ambiguity, and unresolved symbols.
+- **Freshness metadata:** include `generatedAtLogicalTick`, input fingerprint, previous manifest hash, and runtime telemetry window boundaries.
+- **Redaction policy:** normalize absolute paths and redact machine/user-specific segments before artifacts are emitted.
+- **Payload budgets:** enforce size ceilings and split oversized graph shards by route subtree or package.
+
+### 14.4 Dashboard performance requirements
+
+Dashboard data should remain usable for large monorepos:
+
+1. Load the dashboard shell from `dashboard-index.json` without parsing every graph shard.
+2. Lazy-load graph shards by route subtree, component package, or selected edge layer.
+3. Include precomputed search indexes for route path, component name, file path, owner, diagnostic code, and hook names.
+4. Include summary counters on parent nodes so collapsed UI sections can show health and change badges without loading descendants.
+5. Preserve deterministic pagination and sorting for large component/diagnostic tables.
+
+### 14.5 Data refinement roadmap
+
+Recommended near-term improvements:
+
+1. **Define `DashboardArtifactManifest` in shared types** with schema version, source snapshot refs, artifact hashes, and compatibility flags.
+2. **Add a projection pass** after `verify` and before `emit` that converts canonical IR into route/component/graph dashboard view models.
+3. **Add manifest diff generation** keyed by stable entity IDs, including changed confidence, ownership, diagnostic, and edge data.
+4. **Expose dashboard query helpers** that operate on emitted JSON, not live session state, so the dashboard can be static-hosted or embedded in CI artifacts.
+5. **Add CI golden snapshots** for canonical artifacts and dashboard projections to catch determinism drift.
+6. **Add telemetry join validation** to ensure runtime mount events never create new static identities without a fallback `runtimeOnly` marker.
+
+## 15) Observability and Product Metrics
+
+Runtime metrics should be first-class outputs rather than logs only:
+
+- **Pipeline metrics:** pass duration, queue wait time, worker count, retries, skipped passes, cache hit/miss counts, and invalidation frontier size.
+- **IR metrics:** entity counts by kind, edge counts by type, partition sizes, eviction counts, serialization sizes, and confidence distribution.
+- **Dashboard metrics:** dashboard artifact sizes, shard counts, index sizes, top expensive routes/components, and diff summary counts.
+- **Quality metrics:** fatal/error/warning counts, unresolved symbol rate, heuristic edge rate, route coverage, and runtime telemetry join rate.
+
+These metrics SHOULD be emitted in `metrics.json` and referenced from `manifest.json` so CLI, dashboard, and CI integrations all report the same numbers.
+
+## 16) Recommended Implementation Priorities
+
+To keep the architecture incremental and low-risk, implement improvements in this order:
+
+1. **Stabilize contracts:** add typed dashboard artifact contracts and JSON Schemas before changing UI rendering.
+2. **Build projection pass:** derive dashboard view models from immutable verified snapshots only.
+3. **Add diff artifacts:** compare latest emitted manifest against a selected baseline to support CI and pull request review.
+4. **Improve dashboard UX:** route explorer, graph filters, confidence heatmaps, diagnostics grouping, and lazy graph loading.
+5. **Integrate runtime telemetry:** join browser events to stable static IDs with freshness and sampling metadata.
+6. **Harden scale limits:** enforce artifact payload budgets, sharding, and search indexes for large repositories.
+
+## 17) Migration Plan
 
 Incremental migration from singleton registry:
 
@@ -368,7 +485,7 @@ Incremental migration from singleton registry:
 
 Backward compatibility requirement: CLI and Next plugin call sites continue to invoke `runPipeline(config)` while internally delegating to session API until deprecation window ends.
 
-## 15) Example Deterministic Execution Flow
+## 18) Example Deterministic Execution Flow
 
 Given files `app/page.tsx`, `app/dashboard/page.tsx`, `components/Nav.tsx`:
 
@@ -396,7 +513,7 @@ Given files `app/page.tsx`, `app/dashboard/page.tsx`, `components/Nav.tsx`:
 
 Repeating the run with unchanged inputs yields identical snapshot hashes and byte-identical emitted files.
 
-## 16) Open Risks
+## 19) Open Risks
 
 1. **Memory pressure risk:** semantic IR for very large monorepos may exceed heap despite partitioning.
 2. **Pass granularity risk:** coarse pass invalidation may reduce incremental wins.
@@ -404,4 +521,6 @@ Repeating the run with unchanged inputs yields identical snapshot hashes and byt
 4. **Worker overhead risk:** serialization cost can dominate for small partitions.
 5. **Cache trust risk:** stale or corrupted cache metadata can poison incremental planning without robust validation.
 6. **Migration complexity risk:** adapting legacy passes to strict read/write contracts may surface latent coupling and require staged rewrites.
+7. **Dashboard projection drift risk:** UI-facing denormalized artifacts can diverge from canonical IR unless projection tests and schema validation are mandatory.
+8. **Telemetry join risk:** runtime data can be stale, sampled, or missing; dashboard views must label telemetry freshness and avoid presenting it as static truth.
 
