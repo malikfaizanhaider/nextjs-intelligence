@@ -27,6 +27,7 @@ export class IntelligenceRegistry {
   private runtimeData = new Map<string, RuntimeMeta>();
   private graphNodes = new Map<string, GraphNode>();
   private graphEdges: GraphEdge[] = [];
+  private graphEdgeKeys = new Set<string>();
   private projectRoot = "";
 
   private constructor() {}
@@ -162,10 +163,9 @@ export class IntelligenceRegistry {
   // ─── Graph Operations ─────────────────────────────────────
 
   addEdge(edge: GraphEdge): void {
-    const exists = this.graphEdges.some(
-      (e) => e.source === edge.source && e.target === edge.target && e.relationship === edge.relationship
-    );
-    if (!exists) {
+    const key = `${edge.source}|${edge.target}|${edge.relationship}`;
+    if (!this.graphEdgeKeys.has(key)) {
+      this.graphEdgeKeys.add(key);
       this.graphEdges.push(edge);
     }
   }
@@ -291,6 +291,7 @@ export class IntelligenceRegistry {
     this.runtimeData.clear();
     this.graphNodes.clear();
     this.graphEdges = [];
+    this.graphEdgeKeys.clear();
     this.projectRoot = "";
   }
 }

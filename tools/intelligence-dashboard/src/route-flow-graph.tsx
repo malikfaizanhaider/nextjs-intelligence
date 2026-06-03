@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useEffect, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -69,6 +69,31 @@ interface IntelNodeData {
 }
 
 type IntelNode = Node<IntelNodeData>;
+
+const MAX_ROUTE_OVERVIEW_SHARED_EDGES = 600;
+const MAX_ROUTE_OVERVIEW_PAIRS_PER_COMPONENT = 25;
+const MAX_ROUTE_DETAIL_ITEMS_PER_GROUP = 120;
+const MAX_COMPONENT_REUSE_COMPONENTS = 200;
+const MAX_COMPONENT_REUSE_ROUTES = 300;
+const MAX_COMPONENT_REUSE_EDGES = 900;
+const MAX_FULL_ARCH_COMPONENTS = 400;
+const MAX_FULL_ARCH_EDGES = 1_200;
+
+function addLimitNotice(
+  nodes: IntelNode[],
+  label: string,
+  position: { x: number; y: number }
+): void {
+  nodes.push({
+    id: `limit-notice::${nodes.length}`,
+    type: "compactNode",
+    position,
+    data: {
+      label,
+      nodeType: "group",
+    },
+  });
+}
 
 function RouteNode({ data }: NodeProps<IntelNode>) {
   const style = NODE_STYLES[data.nodeType] ?? NODE_STYLES.component;
@@ -210,6 +235,10 @@ function buildRouteOverviewGraph(manifest: IntelligenceManifest): {
   const nodes: IntelNode[] = [];
   const edges: Edge[] = [];
   const routes = Object.values(manifest.routeIntelligence);
+  const routePaths = new Set(routes.map((route) => route.path));
+  const edgeIds = new Set<string>();
+  let sharedEdgeCount = 0;
+  let omittedSharedEdges = 0;
 
   // Position routes in a grid
   const cols = Math.ceil(Math.sqrt(routes.length));
@@ -246,8 +275,7 @@ function buildRouteOverviewGraph(manifest: IntelligenceManifest): {
 
     // Parent-child edges between routes
     if (route.parentRoute && route.parentRoute !== "/") {
-      const parentExists = routes.some((r) => r.path === route.parentRoute);
-      if (parentExists) {
+      if (routePaths.has(route.parentRoute)) {
         edges.push({
           id: `${route.parentRoute}->${route.path}`,
           source: `route::${route.parentRoute}`,
@@ -264,32 +292,54 @@ function buildRouteOverviewGraph(manifest: IntelligenceManifest): {
   });
 
   // Shared component edges between routes
-  for (const [name, usage] of Object.entries(manifest.componentUsage)) {
-    if (usage.usedInRoutes.length > 1) {
-      // Connect routes that share this component via dashed lines
-      for (let i = 0; i < usage.usedInRoutes.length - 1; i++) {
-        for (let j = i + 1; j < usage.usedInRoutes.length; j++) {
-          const routeA = usage.usedInRoutes[i]!;
-          const routeB = usage.usedInRoutes[j]!;
-          const edgeId = `shared::${name}::${routeA}->${routeB}`;
-          if (!edges.some((e) => e.id === edgeId)) {
-            edges.push({
-              id: edgeId,
-              source: `route::${routeA}`,
-              target: `route::${routeB}`,
-              type: "smoothstep",
-              style: {
-                stroke: EDGE_STYLES.reuses.stroke,
-                strokeWidth: 1,
-                strokeDasharray: "5 3",
-              },
-              label: name,
-              labelStyle: { fontSize: 8, fill: "#ec4899" },
-            });
-          }
+  sharedComponents: for (const [name, usage] of Object.entries(manifest.componentUsage)) {
+    if (usage.usedInRoutes.length <= 1) continue;
+
+    // Connect only a bounded sample of routes that share this component. Fully connecting
+    // high-fanout shared components creates O(route²) edge counts and freezes React Flow.
+    for (let i = 0; i < usage.usedInRoutes.length - 1; i++) {
+      const routeA = usage.usedInRoutes[i]!;
+      const maxJ = Math.min(
+        usage.usedInRoutes.length,
+        i + 1 + MAX_ROUTE_OVERVIEW_PAIRS_PER_COMPONENT
+      );
+      omittedSharedEdges += Math.max(usage.usedInRoutes.length - maxJ, 0);
+
+      for (let j = i + 1; j < maxJ; j++) {
+        if (sharedEdgeCount >= MAX_ROUTE_OVERVIEW_SHARED_EDGES) {
+          omittedSharedEdges += usage.usedInRoutes.length - j;
+          continue sharedComponents;
+        }
+
+        const routeB = usage.usedInRoutes[j]!;
+        const edgeId = `shared::${name}::${routeA}->${routeB}`;
+        if (!edgeIds.has(edgeId)) {
+          edgeIds.add(edgeId);
+          sharedEdgeCount += 1;
+          edges.push({
+            id: edgeId,
+            source: `route::${routeA}`,
+            target: `route::${routeB}`,
+            type: "smoothstep",
+            style: {
+              stroke: EDGE_STYLES.reuses.stroke,
+              strokeWidth: 1,
+              strokeDasharray: "5 3",
+            },
+            label: name,
+            labelStyle: { fontSize: 8, fill: "#ec4899" },
+          });
         }
       }
     }
+  }
+
+  if (omittedSharedEdges > 0) {
+    addLimitNotice(
+      nodes,
+      `+${omittedSharedEdges.toLocaleString()} shared route links hidden`,
+      { x: 0, y: Math.ceil(routes.length / Math.max(cols, 1)) * rowHeight + 80 }
+    );
   }
 
   return { nodes, edges };
@@ -304,6 +354,19 @@ function buildRouteDetailGraph(
   const nodes: IntelNode[] = [];
   const edges: Edge[] = [];
   const addedNodes = new Set<string>();
+  const routeComponentNames = new Set(route.components);
+  const dialogNames = new Set(route.dialogs);
+  const gridNames = new Set(route.grids);
+  const chartNames = new Set(route.charts);
+  const providerNames = new Set(route.providers);
+  const componentByName = new Map(Object.values(allComponents).map((component) => [component.name, component]));
+  const renderEdgesBySource = new Map<string, typeof graph.edges>();
+  for (const edge of graph.edges) {
+    if (edge.relationship !== "renders") continue;
+    const bucket = renderEdgesBySource.get(edge.source) ?? [];
+    bucket.push(edge);
+    renderEdgesBySource.set(edge.source, bucket);
+  }
 
   // Root route node at top
   nodes.push({
@@ -325,7 +388,7 @@ function buildRouteDetailGraph(
   // Group items by type and lay them out in columns
   const groups: { type: string; items: string[] }[] = [
     { type: "provider", items: route.providers },
-    { type: "component", items: route.components.filter((c) => !route.dialogs.includes(c) && !route.grids.includes(c) && !route.charts.includes(c) && !route.providers.includes(c)) },
+    { type: "component", items: route.components.filter((c) => !dialogNames.has(c) && !gridNames.has(c) && !chartNames.has(c) && !providerNames.has(c)) },
     { type: "dialog", items: route.dialogs },
     { type: "grid", items: route.grids },
     { type: "chart", items: route.charts },
@@ -338,15 +401,17 @@ function buildRouteDetailGraph(
   for (const group of groups) {
     if (group.items.length === 0) continue;
 
-    const totalWidth = group.items.length * 180;
+    const displayedItems = group.items.slice(0, MAX_ROUTE_DETAIL_ITEMS_PER_GROUP);
+    const omittedItems = group.items.length - displayedItems.length;
+    const totalWidth = displayedItems.length * 180;
     const startX = 300 - totalWidth / 2 + 90;
 
-    group.items.forEach((item, idx) => {
+    displayedItems.forEach((item, idx) => {
       const nodeId = `${group.type}::${item}`;
       if (addedNodes.has(nodeId)) return;
       addedNodes.add(nodeId);
 
-      const comp = Object.values(allComponents).find((c) => c.name === item);
+      const comp = componentByName.get(item);
       const usage = componentUsage[item];
       const isReusable = usage ? usage.usedInRoutes.length > 1 : false;
 
@@ -379,12 +444,10 @@ function buildRouteDetailGraph(
 
       // Child component edges (renders relationship)
       if (comp) {
-        const renderEdges = graph.edges.filter(
-          (e) => e.source === comp.id && e.relationship === "renders"
-        );
+        const renderEdges = renderEdgesBySource.get(comp.id) ?? [];
         for (const re of renderEdges) {
           const target = allComponents[re.target];
-          if (target && route.components.includes(target.name)) {
+          if (target && routeComponentNames.has(target.name)) {
             const targetNodeId = `component::${target.name}`;
             if (addedNodes.has(targetNodeId)) {
               edges.push({
@@ -401,6 +464,13 @@ function buildRouteDetailGraph(
       }
     });
 
+    if (omittedItems > 0) {
+      addLimitNotice(nodes, `+${omittedItems.toLocaleString()} ${group.type} items hidden`, {
+        x: startX + displayedItems.length * 180,
+        y: yOffset,
+      });
+    }
+
     yOffset += 120;
   }
 
@@ -413,11 +483,12 @@ function buildComponentReuseGraph(
   const nodes: IntelNode[] = [];
   const edges: Edge[] = [];
 
-  const reusable = Object.entries(manifest.componentUsage)
+  const allReusable = Object.entries(manifest.componentUsage)
     .filter(([, u]) => u.usedInRoutes.length > 1)
     .sort((a, b) => b[1].usedInRoutes.length - a[1].usedInRoutes.length);
+  const reusable = allReusable.slice(0, MAX_COMPONENT_REUSE_COMPONENTS);
 
-  if (reusable.length === 0) {
+  if (allReusable.length === 0) {
     return { nodes, edges };
   }
 
@@ -439,7 +510,8 @@ function buildComponentReuseGraph(
 
   // Place routes on both sides
   const routePaths = new Set(reusable.flatMap(([, u]) => u.usedInRoutes));
-  const routeList = Array.from(routePaths);
+  const routeList = Array.from(routePaths).slice(0, MAX_COMPONENT_REUSE_ROUTES);
+  const displayedRoutePaths = new Set(routeList);
   const leftRoutes = routeList.slice(0, Math.ceil(routeList.length / 2));
   const rightRoutes = routeList.slice(Math.ceil(routeList.length / 2));
 
@@ -464,6 +536,8 @@ function buildComponentReuseGraph(
   // Connect routes to reusable components
   for (const [name, usage] of reusable) {
     for (const routePath of usage.usedInRoutes) {
+      if (!displayedRoutePaths.has(routePath)) continue;
+      if (edges.length >= MAX_COMPONENT_REUSE_EDGES) break;
       edges.push({
         id: `${routePath}->${name}`,
         source: `route::${routePath}`,
@@ -473,6 +547,16 @@ function buildComponentReuseGraph(
         markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_STYLES.reuses.stroke },
       });
     }
+  }
+
+  const hiddenReusable = allReusable.length - reusable.length;
+  const hiddenRoutes = routePaths.size - routeList.length;
+  if (hiddenReusable > 0 || hiddenRoutes > 0 || edges.length >= MAX_COMPONENT_REUSE_EDGES) {
+    addLimitNotice(
+      nodes,
+      `limited view: ${hiddenReusable.toLocaleString()} components, ${hiddenRoutes.toLocaleString()} routes, or extra links hidden`,
+      { x: centerX, y: reusable.length * 160 + 80 }
+    );
   }
 
   return { nodes, edges };
@@ -510,7 +594,9 @@ function buildFullArchitectureGraph(
   }
 
   // Components as middle row
-  const compList = Array.from(allCompNames).sort();
+  const allCompList = Array.from(allCompNames).sort();
+  const compList = allCompList.slice(0, MAX_FULL_ARCH_COMPONENTS);
+  const visibleComponents = new Set(compList);
   compList.forEach((name, idx) => {
     const usage = manifest.componentUsage[name];
     nodes.push({
@@ -526,8 +612,13 @@ function buildFullArchitectureGraph(
   });
 
   // Route → Component edges
+  let omittedEdges = 0;
   for (const route of routes) {
     for (const comp of route.components) {
+      if (!visibleComponents.has(comp) || edges.length >= MAX_FULL_ARCH_EDGES) {
+        omittedEdges += 1;
+        continue;
+      }
       edges.push({
         id: `route::${route.path}->comp::${comp}`,
         source: `route::${route.path}`,
@@ -537,6 +628,15 @@ function buildFullArchitectureGraph(
         markerEnd: { type: MarkerType.ArrowClosed, color: "#d1d5db" },
       });
     }
+  }
+
+  const hiddenComponents = allCompList.length - compList.length;
+  if (hiddenComponents > 0 || omittedEdges > 0) {
+    addLimitNotice(
+      nodes,
+      `+${hiddenComponents.toLocaleString()} components and ${omittedEdges.toLocaleString()} links hidden`,
+      { x: compList.length * 160 + 160, y: 250 }
+    );
   }
 
   return { nodes, edges };
@@ -596,8 +696,8 @@ export function RouteFlowGraph({
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Update nodes/edges when mode or selection changes
-  useMemo(() => {
+  // Update nodes/edges when mode or selection changes.
+  useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
   }, [initialNodes, initialEdges, setNodes, setEdges]);

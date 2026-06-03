@@ -60,6 +60,10 @@ export class GraphBuilder {
    * Add route nodes and route-to-component edges.
    */
   addRoutes(routes: RouteMeta[], components: ComponentMeta[]): void {
+    const componentByPath = new Map(
+      components.map((component) => [component.filePath.replace(/\\/g, "/"), component])
+    );
+
     for (const route of routes) {
       const routeId = `route::${route.path}`;
       this.nodes.set(routeId, {
@@ -69,11 +73,7 @@ export class GraphBuilder {
       });
 
       // Link route to its page component
-      const pageComponent = components.find((c) => {
-        const normalizedComponentPath = c.filePath.replace(/\\/g, "/");
-        const normalizedRoutePath = route.filePath.replace(/\\/g, "/");
-        return normalizedComponentPath === normalizedRoutePath;
-      });
+      const pageComponent = componentByPath.get(route.filePath.replace(/\\/g, "/"));
 
       if (pageComponent) {
         this.routeEdges.push({
@@ -89,11 +89,7 @@ export class GraphBuilder {
 
       // Link route to layout component
       if (route.layoutFilePath) {
-        const layoutComponent = components.find((c) => {
-          const normalizedComponentPath = c.filePath.replace(/\\/g, "/");
-          const normalizedLayoutPath = route.layoutFilePath!.replace(/\\/g, "/");
-          return normalizedComponentPath === normalizedLayoutPath;
-        });
+        const layoutComponent = componentByPath.get(route.layoutFilePath.replace(/\\/g, "/"));
         if (layoutComponent) {
           this.routeEdges.push({
             source: routeId,
@@ -145,15 +141,15 @@ export class GraphBuilder {
    * Add composite ownership edges from detected composite groups.
    */
   addCompositeOwnership(composites: Map<string, CompositeGroup>, components: ComponentMeta[]): void {
+    const componentByName = new Map(components.map((component) => [component.name, component]));
+
     for (const [, group] of composites) {
-      const rootComp = components.find((c) => c.name === group.root);
+      const rootComp = componentByName.get(group.root);
       if (!rootComp) continue;
 
       for (const subName of group.subComponents) {
         // Find sub-component by full prefixed name
-        const subComp = components.find(
-          (c) => c.name === `${group.root}${subName}` || c.name === subName
-        );
+        const subComp = componentByName.get(`${group.root}${subName}`) ?? componentByName.get(subName);
         if (subComp) {
           this.ownershipEdges.push({
             source: rootComp.id,
@@ -203,10 +199,17 @@ export class GraphBuilder {
    * Add reusable component edges.
    */
   addReusabilityEdges(components: ComponentMeta[]): void {
+    const componentsByRelativePath = new Map<string, ComponentMeta[]>();
+    for (const component of components) {
+      const bucket = componentsByRelativePath.get(component.relativePath) ?? [];
+      bucket.push(component);
+      componentsByRelativePath.set(component.relativePath, bucket);
+    }
+
     for (const component of components) {
       if (component.isReusable) {
         for (const usedInFile of component.usedInFiles) {
-          const consumers = components.filter((c) => c.relativePath === usedInFile);
+          const consumers = componentsByRelativePath.get(usedInFile) ?? [];
           for (const consumer of consumers) {
             this.reuseEdges.push({
               source: consumer.id,
