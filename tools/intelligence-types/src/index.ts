@@ -467,8 +467,10 @@ export interface AnalyzerConfig {
   include: string[];
   /** Glob patterns for files to exclude */
   exclude: string[];
-  /** App directory name relative to project root */
+  /** Primary app directory relative to project root */
   appDir: string;
+  /** All detected app directories (for monorepos / nested apps) */
+  appDirs?: string[];
   /** Output directory for intelligence files */
   outputDir: string;
   /** Enable incremental analysis */

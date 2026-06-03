@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, lazy, Suspense, type ReactNode } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense, useCallback, type ReactNode } from "react";
 import type {
   IntelligenceManifest,
   IntelligenceSummary,
@@ -23,11 +23,18 @@ interface UseManifestDataOptions {
 }
 
 export function useManifestData(options: UseManifestDataOptions) {
+  const [retryKey, setRetryKey] = useState(0);
   const [manifest, setManifest] = useState<IntelligenceManifest | null>(
     options.data ?? null
   );
   const [loading, setLoading] = useState(!options.data);
   const [error, setError] = useState<string | null>(null);
+
+  const retry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    setRetryKey((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     if (options.data) {
@@ -61,9 +68,9 @@ export function useManifestData(options: UseManifestDataOptions) {
       });
 
     return () => controller.abort();
-  }, [options.manifestUrl, options.data]);
+  }, [options.manifestUrl, options.data, retryKey]);
 
-  return { manifest, loading, error };
+  return { manifest, loading, error, retry };
 }
 
 // ─── Color Constants ────────────────────────────────────────
@@ -1004,7 +1011,7 @@ export function IntelligenceDashboard({
   manifestUrl,
   manifest: inlineManifest,
 }: IntelligenceDashboardProps) {
-  const { manifest, loading, error } = useManifestData({
+  const { manifest, loading, error, retry } = useManifestData({
     manifestUrl,
     data: inlineManifest,
   });
@@ -1013,6 +1020,18 @@ export function IntelligenceDashboard({
   const [activeView, setActiveView] = useState<"intelligence" | "graph" | "usage" | "runtime">(
     "intelligence"
   );
+  const [routeQuery, setRouteQuery] = useState("");
+
+  const filteredRoutes = useMemo(() => {
+    if (!manifest) return [];
+    const query = routeQuery.trim().toLowerCase();
+    if (!query) return manifest.routes;
+    return manifest.routes.filter((route) => {
+      const pathMatch = route.path.toLowerCase().includes(query);
+      const fileMatch = route.relativePath.toLowerCase().includes(query);
+      return pathMatch || fileMatch;
+    });
+  }, [manifest, routeQuery]);
 
   const selectedIntel = selectedRoute
     ? manifest?.routeIntelligence[selectedRoute] ?? null
@@ -1029,7 +1048,22 @@ export function IntelligenceDashboard({
   if (error || !manifest) {
     return (
       <div style={{ padding: "48px", textAlign: "center", color: "#ef4444" }}>
-        Failed to load: {error ?? "No data"}
+        <div style={{ marginBottom: "12px", fontWeight: 600 }}>Failed to load: {error ?? "No data"}</div>
+        <button
+          onClick={retry}
+          style={{
+            padding: "6px 14px",
+            borderRadius: "6px",
+            border: "1px solid #ef4444",
+            background: "#fff",
+            color: "#ef4444",
+            cursor: "pointer",
+            fontSize: "12px",
+            fontWeight: 600,
+          }}
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -1107,9 +1141,23 @@ export function IntelligenceDashboard({
           }}
         >
           {/* LEFT: Route Tree */}
-          <div style={{ borderRight: "1px solid #e5e7eb", overflow: "hidden" }}>
+          <div style={{ borderRight: "1px solid #e5e7eb", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
+              <input
+                value={routeQuery}
+                onChange={(event) => setRouteQuery(event.target.value)}
+                placeholder="Search routes or files..."
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  borderRadius: "6px",
+                  border: "1px solid #d1d5db",
+                  fontSize: "12px",
+                }}
+              />
+            </div>
             <RouteTree
-              routes={manifest.routes}
+              routes={filteredRoutes}
               routeIntelligence={manifest.routeIntelligence}
               selectedRoute={selectedRoute}
               onSelectRoute={setSelectedRoute}

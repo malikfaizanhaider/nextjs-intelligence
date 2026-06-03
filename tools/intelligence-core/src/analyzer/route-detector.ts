@@ -1,4 +1,4 @@
-import { resolve, relative, posix } from "node:path";
+import { resolve, relative } from "node:path";
 import type { RouteMeta } from "../../../intelligence-types/src/index";
 import fg from "fast-glob";
 
@@ -8,21 +8,22 @@ const NEXT_SPECIAL_FILES = ["page", "layout", "loading", "error", "template"] as
  * Detect all Next.js App Router routes by scanning for page.tsx files
  * and associating related layout/loading/error/template files.
  */
-export async function detectRoutes(projectRoot: string, appDir: string): Promise<RouteMeta[]> {
-  const absoluteAppDir = resolve(projectRoot, appDir);
-  const normalizedAppDir = absoluteAppDir.replace(/\\/g, "/");
+export async function detectRoutes(projectRoot: string, appDirs: string | string[]): Promise<RouteMeta[]> {
+  const routeMap = new Map<string, RouteMeta>();
+  const dirs = Array.isArray(appDirs) ? appDirs : [appDirs];
 
-  // Find all page.tsx/page.ts/page.jsx/page.js files
-  const pageFiles = await fg("**/page.{tsx,ts,jsx,js}", {
-    cwd: normalizedAppDir,
-    absolute: false,
-    onlyFiles: true,
-    ignore: ["node_modules/**", ".next/**"],
-  });
+  for (const appDir of dirs) {
+    const absoluteAppDir = resolve(projectRoot, appDir);
+    const normalizedAppDir = absoluteAppDir.replace(/\\/g, "/");
 
-  const routes: RouteMeta[] = [];
+    const pageFiles = await fg("**/page.{tsx,ts,jsx,js}", {
+      cwd: normalizedAppDir,
+      absolute: false,
+      onlyFiles: true,
+      ignore: ["node_modules/**", ".next/**"],
+    });
 
-  for (const pageFile of pageFiles.sort()) {
+    for (const pageFile of pageFiles.sort()) {
     const dir = pageFile.replace(/\/page\.(tsx?|jsx?)$/, "") || ".";
     const routePath = buildRoutePath(dir);
 
@@ -39,7 +40,7 @@ export async function detectRoutes(projectRoot: string, appDir: string): Promise
     const parentRoute = getParentRoute(routePath);
     const isRouteGroup = dir.includes("(") && dir.includes(")");
 
-    routes.push({
+      routeMap.set(routePath, {
       path: routePath,
       filePath: absolutePagePath,
       relativePath,
@@ -52,9 +53,10 @@ export async function detectRoutes(projectRoot: string, appDir: string): Promise
       isRouteGroup,
       parentRoute,
     });
+    }
   }
 
-  return routes;
+  return Array.from(routeMap.values()).sort((a,b)=>a.path.localeCompare(b.path));
 }
 
 /**
