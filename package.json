@@ -51,7 +51,7 @@
     "build": "tsc -p tsconfig.build.json && node scripts/fix-esm-imports.mjs",
     "prepublishOnly": "npm run build",
     "lint": "echo \"No lint step configured\"",
-    "test": "echo \"No tests configured\""
+    "test": "npm run build && node --test \"tests/**/*.test.mjs\""
   },
   "peerDependencies": {
     "next": ">=14.0.0",

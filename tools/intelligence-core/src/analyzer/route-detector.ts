@@ -1,4 +1,5 @@
-import { resolve, relative } from "node:path";
+import { access } from "node:fs/promises";
+import { dirname, relative, resolve } from "node:path";
 import type { RouteMeta } from "../../../intelligence-types/src/index";
 import fg from "fast-glob";
 
@@ -24,35 +25,36 @@ export async function detectRoutes(projectRoot: string, appDirs: string | string
     });
 
     for (const pageFile of pageFiles.sort()) {
-    const dir = pageFile.replace(/\/page\.(tsx?|jsx?)$/, "") || ".";
-    const routePath = buildRoutePath(dir);
+      const pageDir = dirname(pageFile).replace(/\\/g, "/");
+      const dir = pageDir === "." ? "." : pageDir;
+      const routePath = buildRoutePath(dir);
 
-    const absolutePagePath = resolve(absoluteAppDir, pageFile);
-    const relativePath = relative(projectRoot, absolutePagePath).replace(/\\/g, "/");
+      const absolutePagePath = resolve(absoluteAppDir, pageFile);
+      const relativePath = relative(projectRoot, absolutePagePath).replace(/\\/g, "/");
 
-    // Detect associated special files
-    const layoutFile = await findSpecialFile(normalizedAppDir, dir, "layout");
-    const loadingFile = await findSpecialFile(normalizedAppDir, dir, "loading");
-    const errorFile = await findSpecialFile(normalizedAppDir, dir, "error");
-    const templateFile = await findSpecialFile(normalizedAppDir, dir, "template");
+      // Detect associated special files
+      const layoutFile = await findSpecialFile(normalizedAppDir, dir, "layout");
+      const loadingFile = await findSpecialFile(normalizedAppDir, dir, "loading");
+      const errorFile = await findSpecialFile(normalizedAppDir, dir, "error");
+      const templateFile = await findSpecialFile(normalizedAppDir, dir, "template");
 
-    const segmentType = detectSegmentType(routePath);
-    const parentRoute = getParentRoute(routePath);
-    const isRouteGroup = dir.includes("(") && dir.includes(")");
+      const segmentType = detectSegmentType(routePath);
+      const parentRoute = getParentRoute(routePath);
+      const isRouteGroup = dir.includes("(") && dir.includes(")");
 
       routeMap.set(routePath, {
-      path: routePath,
-      filePath: absolutePagePath,
-      relativePath,
-      segmentType,
-      layoutFilePath: layoutFile,
-      loadingFilePath: loadingFile,
-      errorFilePath: errorFile,
-      templateFilePath: templateFile,
-      components: [],
-      isRouteGroup,
-      parentRoute,
-    });
+        path: routePath,
+        filePath: absolutePagePath,
+        relativePath,
+        segmentType,
+        layoutFilePath: layoutFile,
+        loadingFilePath: loadingFile,
+        errorFilePath: errorFile,
+        templateFilePath: templateFile,
+        components: [],
+        isRouteGroup,
+        parentRoute,
+      });
     }
   }
 
@@ -130,15 +132,19 @@ async function findSpecialFile(
   dir: string,
   fileName: (typeof NEXT_SPECIAL_FILES)[number]
 ): Promise<string | null> {
-  const pattern = dir === "."
-    ? `${fileName}.{tsx,ts,jsx,js}`
-    : `${dir}/${fileName}.{tsx,ts,jsx,js}`;
+  for (const extension of ["tsx", "ts", "jsx", "js"]) {
+    const candidate = resolve(
+      appDir,
+      dir === "." ? `${fileName}.${extension}` : `${dir}/${fileName}.${extension}`
+    );
 
-  const matches = await fg(pattern, {
-    cwd: appDir,
-    absolute: true,
-    onlyFiles: true,
-  });
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Try the next supported Next.js source extension.
+    }
+  }
 
-  return matches.length > 0 ? matches[0]! : null;
+  return null;
 }
