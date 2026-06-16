@@ -43,3 +43,6 @@ export type { AnalysisPass, PassExecutionRecord } from "./passes/pass-manager";
 export { InMemoryDiagnosticsStore } from "./session/diagnostics-store";
 export { InMemoryIRStore } from "./ir/ir-store";
 export { RegistryAdapter } from "./session/registry-adapter";
+
+export { startMcpServer, IntelligenceAnalysisService } from "./mcp/index";
+export type { McpAnalysisOptions, DependencyGraphResult, ImpactAnalysisResult } from "./mcp/index";
