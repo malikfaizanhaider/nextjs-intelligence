@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { watch as fsWatch, type FSWatcher } from "node:fs";
 import { runIntelligencePipelineDetailed } from "./pipeline";
+import { startMcpServer } from "./mcp/server";
 import { consoleLogger, silentLogger } from "./logger";
 import { diffManifests, formatManifestDiff } from "./manifest-diff";
 import type { IntelligenceManifest } from "../../intelligence-types/src/index";
@@ -12,7 +13,13 @@ const args = process.argv.slice(2);
 
 const HELP = `intelligence — static analyzer for Next.js apps
 
-Usage: intelligence [options]
+Usage: intelligence [command] [options]
+
+Commands:
+  analyze               Run the analyzer (default)
+  graph                 Run the analyzer and emit the dependency graph with --json
+  diagnostics           Run the analyzer and emit diagnostics with --json
+  mcp                   Start an MCP server over stdio
 
 Options:
   --root <path>         Project root (default: cwd)
@@ -77,7 +84,9 @@ function formatStats(telemetry: import("../../intelligence-types/src/index").Pip
 }
 
 async function main(): Promise<void> {
-  const parsed = parseArgs(args);
+  const command = args.find((arg) => !arg.startsWith("-")) ?? "analyze";
+  const optionArgs = command === "analyze" ? args : args.filter((arg) => arg !== command);
+  const parsed = parseArgs(optionArgs);
 
   if (parsed["help"] === "true") {
     process.stdout.write(HELP);
@@ -96,6 +105,16 @@ async function main(): Promise<void> {
   const watchMode = parsed["watch"] === "true";
   const watchDebounceMs = Number.parseInt(parsed["watch-debounce"] ?? "150", 10);
   const showDiff = parsed["diff"] === "true";
+
+  if (command === "mcp") {
+    await startMcpServer({ projectRoot, outputDir, appDir, incremental });
+    return;
+  }
+
+  if (!["analyze", "graph", "diagnostics"].includes(command)) {
+    process.stderr.write(`[intelligence] Unknown command: ${command}\n`);
+    process.exit(2);
+  }
 
   if (jsonMode && watchMode) {
     process.stderr.write("[intelligence] --json is not supported with --watch.\n");
@@ -149,6 +168,8 @@ async function main(): Promise<void> {
         summary: manifest.summary,
         diagnostics: telemetry.diagnostics,
       };
+      if (command === "graph") payload.graph = manifest.graph;
+      if (command === "diagnostics") payload.diagnosticsList = manifest.diagnostics;
       if (showStats) payload.telemetry = telemetry;
       if (showDiff) {
         payload.diff = prior ? diffManifests(prior, manifest) : null;
